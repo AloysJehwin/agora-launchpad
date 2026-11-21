@@ -9,7 +9,11 @@
 
   var API = '/_lp/api/admin';
   var DRAFT_KEY = 'lp-admin-drafts';
+  var DAYS_KEY = 'lp-admin-days';
   var LEADS_EVERY = 15000;
+  var STATS_EVERY = 60000;
+  var STATS_RECHECK = 300000;   // how often to look again for numbers an older server does not have yet
+  var PERIODS = [7, 30, 90];
   var SITE_EVERY_BUSY = 5000;
   var TRANSCRIPT_PEEK = 6;
 
@@ -32,7 +36,7 @@
     published: { label: 'Live', tone: 'won', icon: 'check' },
     failed: { label: 'Needs attention', tone: 'alarm', icon: 'alert' }
   };
-  var VIEW_TITLE = { leads: 'Leads', website: 'Website', account: 'Account' };
+  var VIEW_TITLE = { overview: 'Overview', leads: 'Enquiries', website: 'Website', account: 'Account' };
 
   var ICONS = {
     back: ['M15 5l-7 7 7 7'],
@@ -48,12 +52,22 @@
     alert: ['M12 3.5l9.5 16.5h-19z', 'M12 10v4.5', 'M12 17.2v.1'],
     share: ['M12 15V4', 'M8 8l4-4 4 4', 'M5 13v6h14v-6'],
     dot: ['F:M12 6a6 6 0 1 0 0 12 6 6 0 0 0 0-12z'],
-    half: ['M12 5a7 7 0 1 0 0 14 7 7 0 0 0 0-14z', 'F:M12 5a7 7 0 0 1 0 14z']
+    half: ['M12 5a7 7 0 1 0 0 14 7 7 0 0 0 0-14z', 'F:M12 5a7 7 0 0 1 0 14z'],
+    go: ['M9 5l7 7-7 7'],
+    up: ['M12 19V5', 'M6 11l6-6 6 6'],
+    down: ['M12 5v14', 'M6 13l6 6 6-6'],
+    refresh: ['M19.5 12a7.5 7.5 0 1 1-2.2-5.3', 'M19.5 4v3.5H16'],
+    eye: ['M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z', 'M12 9.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z'],
+    pin: ['M12 21s-6.5-6-6.5-11a6.5 6.5 0 0 1 13 0c0 5-6.5 11-6.5 11z', 'M12 8a2 2 0 1 0 0 4 2 2 0 0 0 0-4z'],
+    tap: ['M9 11.5V5a1.5 1.5 0 0 1 3 0v5.5', 'M12 10a1.5 1.5 0 0 1 3 0v1.5', 'M15 11a1.5 1.5 0 0 1 3 0v4a6 6 0 0 1-6 6h-.6a5 5 0 0 1-4.1-2.1L4.9 15.4a1.4 1.4 0 0 1 2.2-1.7L9 15.5'],
+    smartphone: ['M8 3h8a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z', 'M11 18h2'],
+    desktop: ['M3 5h18v11H3z', 'M9 20h6', 'M12 16v4'],
+    tablet: ['M6 3h12v18H6z', 'M11 18h2']
   };
 
   var state = {
     me: null,
-    view: 'leads',
+    view: 'overview',
     leadId: null,
     leads: [],
     counts: null,
@@ -63,6 +77,11 @@
     site: null,
     siteLoaded: false,
     siteError: null,
+    stats: null,                 // the last numbers the server gave us, tidied
+    statsDays: loadDays(),
+    statsStatus: 'loading',      // 'loading' | 'ok' | 'stale' | 'error' | 'unavailable'
+    statsError: null,
+    statsOkAt: 0,
     drafts: loadDrafts()
   };
 
@@ -396,6 +415,7 @@
       name: str(s.name).trim(),
       status: str(s.status),
       url: str(s.url),
+      address: str(s.url) || str(previous.address),   // where the site lives, or will live once published
       previewUrl: str(s.previewUrl),
       lang: str(s.lang),
       sections: Array.isArray(s.sections) ? s.sections.map(str).filter(Boolean) : arr(previous.sections),
@@ -417,7 +437,7 @@
 
   function leadName(lead) { return lead.name || 'Unknown caller'; }
   function siteName() { return (state.site && state.site.name) || 'your website'; }
-  function siteUrl() { return state.site ? state.site.url : ''; }
+  function siteUrl() { return state.site ? (state.site.url || state.site.address) : ''; }
 
   /* ------------------------------------------------------------------ */
   /* Starting up, signing in, signing out                                 */
@@ -462,7 +482,7 @@
       if (context.reason === 'left') title.textContent = 'You’re signed out';
       else if (context.reason === 'expired') title.textContent = 'Sign in again to carry on';
       else if (context.reason === 'bad-link') title.textContent = 'That link didn’t let you in';
-      else title.textContent = 'Sign in to see your leads';
+      else title.textContent = 'Sign in to see your website';
 
       if (context.reason === 'expired') {
         card.append(h('p', { class: 'lede' }, 'You were signed out for safety. Anything you were typing has been kept on this device.'));
@@ -470,7 +490,7 @@
         card.append(h('div', { class: 'notice', 'data-kind': 'error' }, icon('alert'),
           h('div', { class: 'notice-body' }, context.message || 'The private link may have expired or already been used.')));
       } else if (context.reason !== 'left') {
-        card.append(h('p', { class: 'lede' }, 'This is the private panel for the owner of this website: the people who got in touch, and the site itself.'));
+        card.append(h('p', { class: 'lede' }, 'This is the private panel for the owner of this website: how many people visit, who got in touch, and the site itself.'));
       }
 
       if (signInUrl) {
@@ -541,6 +561,7 @@
     $('brand-name').textContent = siteName();
     $('who').textContent = state.me.email ? 'Signed in as ' + str(state.me.email) : '';
 
+    buildOverviewView();
     buildLeadsView();
     buildWebsiteView();
     buildAccountView();
@@ -555,6 +576,7 @@
     route(false);
     loadLeads();
     loadSite();
+    loadStats();
     startTicker();
   }
 
@@ -578,6 +600,12 @@
     if (state.view === 'website') {
       var every = siteIsBusy() ? SITE_EVERY_BUSY : LEADS_EVERY;
       if (now - lastSiteAt >= (woke ? 3000 : every - 500)) loadSite();
+    }
+    if (state.view === 'overview') {
+      // Gentle: the numbers move slowly, and the site's state only matters here as a headline.
+      var statsEvery = state.statsStatus === 'unavailable' ? STATS_RECHECK : STATS_EVERY;
+      if (!statsLoading && now - lastStatsAt >= (woke ? 15000 : statsEvery - 500)) loadStats();
+      if (now - lastSiteAt >= (siteIsBusy() ? SITE_EVERY_BUSY : STATS_EVERY) - 500) loadSite();
     }
   }
 
@@ -603,7 +631,7 @@
       state.leadsError = err.message;
     } finally {
       leadsLoading = false;
-      if (!gateShown) { renderLeads(); renderLeadPane(); }
+      if (!gateShown) { renderLeads(); renderLeadPane(); renderAttention(); if (state.statsStatus === 'unavailable') renderStats(); }
     }
   }
 
@@ -623,7 +651,7 @@
       state.siteError = err.message;
     } finally {
       siteLoading = false;
-      if (!gateShown) { updateWebsite(); updateSiteBadge(); }
+      if (!gateShown) { updateWebsite(); updateSiteBadge(); renderOverviewSite(); renderAttention(); renderStats(); }
     }
   }
 
@@ -633,7 +661,7 @@
 
   function parseHash() {
     var parts = window.location.hash.replace(/^#\/?/, '').split('/');
-    var view = VIEW_TITLE[parts[0]] ? parts[0] : 'leads';
+    var view = VIEW_TITLE[parts[0]] ? parts[0] : 'overview';
     var leadId = null;
     if (view === 'leads' && parts[1]) {
       try { leadId = decodeURIComponent(parts.slice(1).join('/')); } catch (e) { leadId = null; }
@@ -658,6 +686,7 @@
       else links[i].removeAttribute('aria-current');
     }
 
+    if (state.view === 'overview') { renderOverview(); if (fromUser) tick(true); }
     if (state.view === 'leads') { renderLeads(); renderLeadPane(); }
     if (state.view === 'website') { updateWebsite(); if (fromUser) tick(true); }
     updateTitle();
@@ -695,15 +724,956 @@
   }
 
   /* ------------------------------------------------------------------ */
+  /* Overview: how the site is doing and what is waiting for the owner   */
+  /* ------------------------------------------------------------------ */
+
+  var ov = null;
+  var statsLoading = false;
+  var statsSeq = 0;
+  var lastStatsAt = 0;
+
+  var TOTAL_KEYS = ['views', 'visitors', 'engaged', 'engagementRate', 'avgSeconds', 'contactClicks', 'assistantOpens', 'talks', 'talkSeconds', 'enquiries', 'conversionRate'];
+  var CLICK_ICON = { call: 'phone', whatsapp: 'chat', email: 'mail', map: 'pin', other: 'tap' };
+  var FEED_ICON = { view: 'eye', click: 'tap', talk: 'mic', enquiry: 'note' };
+  var LANG_NAMES = { en: 'English', hi: 'Hindi', te: 'Telugu', ta: 'Tamil', kn: 'Kannada', ml: 'Malayalam', mr: 'Marathi', bn: 'Bengali', gu: 'Gujarati', pa: 'Punjabi', ur: 'Urdu', or: 'Odia', as: 'Assamese' };
+  var NUMBERS = (function () { try { return new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 }); } catch (e) { return null; } })();
+
+  function loadDays() {
+    try {
+      var n = Number(window.localStorage.getItem(DAYS_KEY));
+      return PERIODS.indexOf(n) >= 0 ? n : 30;
+    } catch (e) { return 30; }
+  }
+
+  function obj(v) { return v && typeof v === 'object' ? v : {}; }
+  function num(v) { v = Number(v); return isFinite(v) && v > 0 ? v : 0; }
+  function fmt(n) { n = Math.round(num(n)); return NUMBERS ? NUMBERS.format(n) : String(n); }
+  function plural(n, one, many) { return fmt(n) + ' ' + (Math.round(num(n)) === 1 ? one : many); }
+  function capFirst(text) { return text.charAt(0).toUpperCase() + text.slice(1); }
+
+  // 130 -> "2 min 10 s"
+  function duration(seconds) {
+    var s = Math.round(num(seconds));
+    if (s < 60) return s + ' s';
+    var m = Math.floor(s / 60);
+    var rest = s % 60;
+    if (m < 60) return m + ' min' + (rest ? ' ' + rest + ' s' : '');
+    var hrs = Math.floor(m / 60);
+    return hrs + ' hr' + (m % 60 ? ' ' + (m % 60) + ' min' : '');
+  }
+
+  // A rate said the way a person would say it: 0.56 -> "56 of every 100 visitors".
+  function perHundred(rate) {
+    rate = num(rate);
+    if (rate <= 0) return 'none of your visitors';
+    if (rate < 0.0095) {
+      // Too small to say out of a hundred: "about 1 of every 170 visitors".
+      var every = 1 / rate;
+      every = every >= 1000 ? Math.round(every / 100) * 100 : Math.round(every / 10) * 10;
+      return 'about 1 of every ' + fmt(every) + ' visitors';
+    }
+    return Math.min(100, Math.round(rate * 100)) + ' of every 100 visitors';
+  }
+
+  function parseDay(value) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(str(value));
+    return m ? new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))) : null;
+  }
+
+  // Days arrive as plain dates in the site's own timezone, so they are shown as written.
+  function dayLabel(value, withWeekday) {
+    var d = value && value.getTime ? value : parseDay(value);
+    if (!d) return str(value);
+    try {
+      return d.toLocaleDateString('en-IN', withWeekday
+        ? { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }
+        : { day: 'numeric', month: 'short', timeZone: 'UTC' });
+    } catch (e) { return str(value); }
+  }
+
+  function hourLabel(hour) {
+    hour = ((hour % 24) + 24) % 24;
+    return (hour % 12 === 0 ? 12 : hour % 12) + (hour < 12 ? ' am' : ' pm');
+  }
+
+  function langName(code) {
+    var base = str(code).toLowerCase().split(/[-_]/)[0];
+    if (LANG_NAMES[base]) return LANG_NAMES[base];
+    try {
+      var name = new Intl.DisplayNames(['en'], { type: 'language' }).of(base);
+      if (name && name !== base) return name;
+    } catch (e) { /* older browser, or not a language code */ }
+    return str(code) || 'Another language';
+  }
+
+  function timezoneName(tz) {
+    if (tz === 'Asia/Kolkata' || tz === 'Asia/Calcutta') return 'India time';
+    return tz ? tz.split('/').pop().replace(/_/g, ' ') + ' time' : '';
+  }
+
+  function normTotals(t) {
+    t = obj(t);
+    var out = {};
+    TOTAL_KEYS.forEach(function (k) { out[k] = num(t[k]); });
+    return out;
+  }
+
+  function normalizeStats(d, askedDays) {
+    d = obj(d);
+    var range = obj(d.range);
+    var devices = obj(d.devices);
+    var hours = [];
+    for (var i = 0; i < 24; i++) hours.push(num(arr(d.hours)[i]));
+    return {
+      days: PERIODS.indexOf(Number(range.days)) >= 0 ? Number(range.days) : askedDays,
+      from: str(range.from),
+      to: str(range.to),
+      timezone: str(range.timezone),
+      totals: normTotals(d.totals),
+      previous: normTotals(d.previous),
+      daily: arr(d.daily).map(function (x) { x = obj(x); return { date: str(x.date), views: num(x.views), visitors: num(x.visitors), engaged: num(x.engaged), talks: num(x.talks), enquiries: num(x.enquiries) }; }),
+      funnel: arr(d.funnel).map(function (x) { x = obj(x); return { key: str(x.key), label: str(x.label).trim(), count: num(x.count) }; }).filter(function (x) { return x.label; }),
+      sections: arr(d.sections).map(function (x) { x = obj(x); return { label: str(x.label).trim(), count: num(x.views) }; }).filter(function (x) { return x.label; }),
+      clicks: arr(d.clicks).map(function (x) { x = obj(x); return { kind: str(x.kind), label: str(x.label).trim() || 'A button', count: num(x.count) }; }),
+      sources: arr(d.sources).map(function (x) { x = obj(x); return { label: str(x.source).trim() || 'Somewhere else', count: num(x.visitors) }; }),
+      devices: { mobile: num(devices.mobile), desktop: num(devices.desktop), tablet: num(devices.tablet) },
+      hours: hours,
+      languages: arr(d.languages).map(function (x) { x = obj(x); return { lang: str(x.lang).trim(), count: num(x.talks) }; }),
+      recent: arr(d.recent).slice(0, 20).map(function (x) { x = obj(x); return { at: Number(x.at) || 0, type: str(x.type), text: str(x.text).trim() }; }).filter(function (x) { return x.text; }),
+      updatedAt: Number(d.updatedAt) || 0
+    };
+  }
+
+  // Public or not. The server hands out a public address only once a site has been published;
+  // a published site that has since been changed reports "ready" again, but visitors still reach it.
+  function isLive() {
+    var site = state.site;
+    if (!site) return false;
+    return state.siteLoaded ? !!site.url : site.status === 'published';
+  }
+
+  // Until the site's details have arrived, "ready" could mean either, so nothing is claimed yet.
+  function siteSettled() {
+    return state.siteLoaded || !!state.siteError || (!!state.site && state.site.status !== 'ready');
+  }
+
+  // manual: the owner pressed Refresh or changed the period (so say when it is done).
+  async function loadStats(manual) {
+    if (gateShown) return;
+    var days = state.statsDays;
+    var seq = ++statsSeq;                 // the newest request wins when the period changes mid-flight
+    statsLoading = true;
+    lastStatsAt = Date.now();
+    paintStatsBar();
+    try {
+      var data = await api('/stats?days=' + days);
+      if (seq !== statsSeq) return;
+      state.stats = normalizeStats(data, days);
+      state.statsStatus = 'ok';
+      state.statsError = null;
+      state.statsOkAt = Date.now();
+      if (manual) announce('Numbers updated.');
+    } catch (err) {
+      if (seq !== statsSeq || err.status === 401) return;
+      if (err.status === 404) {
+        // An older server that does not count visits yet. Everything else carries on.
+        state.stats = null;
+        state.statsStatus = 'unavailable';
+        state.statsError = null;
+      } else {
+        if (state.stats && state.stats.days !== days) state.stats = null;
+        state.statsStatus = state.stats ? 'stale' : 'error';
+        state.statsError = err.message;
+      }
+    } finally {
+      if (seq === statsSeq) {
+        statsLoading = false;
+        if (!gateShown) { renderStats(); renderAttention(); }
+      }
+    }
+  }
+
+  function setPeriod(days) {
+    if (PERIODS.indexOf(days) < 0 || days === state.statsDays) return;
+    state.statsDays = days;
+    try { window.localStorage.setItem(DAYS_KEY, String(days)); } catch (e) { /* private mode: this visit only */ }
+    if (!state.stats && state.statsStatus !== 'unavailable') state.statsStatus = 'loading';
+    loadStats(true);
+  }
+
+  async function refreshAll() {
+    if (isOff(ov.refresh)) return;
+    ov.refresh.setAttribute('aria-busy', 'true');
+    ov.refresh.setAttribute('aria-disabled', 'true');
+    loadLeads();
+    loadSite();
+    await loadStats(true);
+    ov.refresh.removeAttribute('aria-busy');
+    ov.refresh.removeAttribute('aria-disabled');
+  }
+
+  function buildOverviewView() {
+    var view = $('view-overview');
+    ov = { sig: {}, charts: [], open: {}, radios: {}, waitShown: false };
+
+    ov.title = h('h1', { class: 'page-title', id: 'overview-title', tabindex: '-1' }, 'Overview');
+    ov.stampSlot = h('span');
+    ov.site = h('div', { class: 'ov-site' });
+    ov.attention = h('section', { class: 'ov-attn', 'aria-labelledby': 'attn-title' });
+    // The newest unanswered enquiries. It lives among the cards below, next to the numbers.
+    ov.waitCard = h('section', { class: 'slip card card-wait', 'aria-labelledby': 'wait-title', 'data-card': 'wait' });
+
+    // Period and refresh: one row, above everything they change.
+    var radioName = nextId('period');
+    ov.periods = h('div', { class: 'status-set seg', role: 'radiogroup', 'aria-label': 'Show numbers for the last' });
+    PERIODS.forEach(function (n) {
+      var input = h('input', { type: 'radio', name: radioName, value: n });
+      input.checked = n === state.statsDays;
+      input.addEventListener('change', function () { if (input.checked) setPeriod(n); });
+      ov.radios[n] = input;
+      ov.periods.append(h('label', { class: 'status-opt' }, input, h('span', { class: 'status-face' }, n + ' days')));
+    });
+    ov.refresh = h('button', { type: 'button', class: 'btn ov-refresh', 'aria-label': 'Refresh the numbers' }, icon('refresh'), h('span', { class: 'ov-refresh-label' }, 'Refresh'));
+    ov.refresh.addEventListener('click', refreshAll);
+    ov.updated = h('p', { class: 'fine ov-updated' });
+    ov.statsTitle = h('h2', { class: 'section-title', id: 'stats-title', tabindex: '-1' }, 'How your site is doing');
+    ov.alert = h('div', { hidden: true });
+    ov.body = h('div', { class: 'ov-body' });
+
+    view.replaceChildren(h('div', { class: 'overview' },
+      h('div', { class: 'ov-head' }, h('div', { class: 'site-head' }, ov.title, ov.stampSlot), ov.site),
+      ov.attention,
+      h('section', { class: 'ov-stats', 'aria-labelledby': 'stats-title' },
+        h('div', { class: 'ov-bar' }, ov.statsTitle, ov.updated),
+        h('div', { class: 'ov-controls' }, ov.periods, ov.refresh),
+        ov.alert, ov.body)));
+
+    // Charts are drawn to the pixel width they are given, so redraw when that changes.
+    if (typeof window.ResizeObserver === 'function') new window.ResizeObserver(function () { drawCharts(false); }).observe(ov.body);
+    else window.addEventListener('resize', function () { drawCharts(false); });
+
+    renderOverview();
+  }
+
+  function renderOverview() {
+    renderOverviewSite();
+    renderAttention();
+    renderStats();
+  }
+
+  function shareButton(label, primary) {
+    var href = safeUrl(siteUrl());
+    if (!href || typeof navigator.share !== 'function') return null;
+    return h('button', { type: 'button', class: 'btn' + (primary ? ' btn-primary' : ''), onclick: function () {
+      navigator.share({ title: siteName(), url: href }).catch(function () { /* the owner closed the share sheet */ });
+    } }, icon('share', 'icon-sm'), label);
+  }
+
+  function goLink(label, href, primary, onclick) {
+    return h('a', { class: 'btn' + (primary ? ' btn-primary' : ''), href: href, onclick: onclick || null }, label, icon('go', 'icon-sm'));
+  }
+
+  /* The site itself: is it public, and where. */
+  function renderOverviewSite() {
+    if (!ov || !state.site) return;
+    var site = state.site;
+    var live = isLive();
+
+    var settled = siteSettled();
+
+    patch(ov, 'stamp', [site.status, live, settled], function () {
+      var s = settled ? SITE_STATUS[site.status] : null;
+      // A site that is public is live for visitors, whatever is being worked on behind it.
+      if (live && site.status !== 'revising') s = SITE_STATUS.published;
+      ov.stampSlot.replaceChildren(s ? stamp(s.tone, s.label, s.icon, true) : '');
+    });
+
+    patch(ov, 'site', [siteUrl(), site.status, live, settled], function () {
+      var row = addressRow(siteUrl());
+      row.setAttribute('role', 'group');
+      row.setAttribute('aria-label', live ? 'Your site’s address' : 'The address your site will have');
+      var share = live ? shareButton('Share') : null;
+      if (share) row.append(share);
+      ov.site.replaceChildren(row);
+      if (!live && settled) {
+        ov.site.append(h('p', { class: 'fine' }, site.status === 'designing'
+          ? 'Your site is still being designed. This will be its address.'
+          : 'Not public yet. This will be your address once you publish.'));
+      }
+    });
+  }
+
+  /* What is waiting for the owner: enquiries to answer, changes to publish. */
+  function renderAttention() {
+    if (!ov || !state.site) return;
+    var site = state.site;
+    var counts = state.counts;
+    var newCount = counts ? counts.new : 0;
+    var top = state.leads.filter(function (l) { return l.status === 'new'; }).slice(0, 3);
+    var tip = attentionTip();
+    var live = isLive();
+    var settled = siteSettled();
+    var onlyNew = function () { state.filter = 'new'; };
+
+    patch(ov, 'attention', [site.status, needsPublish(site), live, settled, state.leadsLoaded, state.leadsLoaded ? '' : state.leadsError, newCount, counts ? counts.total : 0, tip], function () {
+      var rows = [];
+
+      if (!settled) {
+        /* nothing to say about the site until its details arrive */
+      } else if (site.status === 'failed') {
+        rows.push(attnRow('alert', 'alarm', 'The last change to your site didn’t work', 'Describe the change again and the assistant will have another go.', goLink('Website', '#/website')));
+      } else if (site.status === 'designing') {
+        rows.push(attnRow('half', 'neutral', 'Your site is being designed', 'You can publish it as soon as it is ready. This page updates on its own.', null));
+      } else if (needsPublish(site) && !live) {
+        rows.push(attnRow('alert', 'contacted', 'Your site isn’t public yet', 'Customers can’t find you until you publish it.', goLink('Review', '#/website', true)));
+      } else if (needsPublish(site)) {
+        rows.push(attnRow('alert', 'contacted', 'Your changes aren’t public yet', 'Visitors still see the older version. Publish to show them the new one.', goLink('Review', '#/website')));
+      }
+
+      if (!state.leadsLoaded && state.leadsError) {
+        rows.push(attnRow('alert', 'alarm', 'We couldn’t check your enquiries', state.leadsError,
+          h('button', { type: 'button', class: 'btn', onclick: function () { state.leadsError = null; renderAttention(); loadLeads(); } }, 'Try again')));
+      } else if (newCount > 0) {
+        rows.push(attnRow('dot', 'new',
+          newCount === 1 ? '1 enquiry waiting for a reply' : fmt(newCount) + ' enquiries waiting for a reply',
+          'The sooner you answer, the more likely they become customers.',
+          goLink(newCount === 1 ? 'Reply' : 'See all', '#/leads', true, onlyNew)));
+      }
+
+      if (tip === 'contact') {
+        rows.push(attnRow('phone', 'neutral', 'Visitors aren’t tapping call or WhatsApp', 'Ask the assistant to make your phone number easier to spot.', goLink('Website', '#/website')));
+      }
+
+      var title = h('h2', { class: 'sr-only', id: 'attn-title' }, 'Waiting for you');
+      if (rows.length) {
+        var box = h('div', { class: 'slip attn' });
+        rows.forEach(function (r) { box.append(r); });
+        ov.attention.replaceChildren(title, box);
+      } else if (!state.leadsLoaded) {
+        ov.attention.replaceChildren(title, h('p', { class: 'ov-quiet', role: 'status' }, h('span', { class: 'spinner', 'aria-hidden': 'true' }), 'Checking your enquiries…'));
+      } else {
+        ov.attention.replaceChildren(title, h('p', { class: 'ov-quiet' }, icon('check', 'icon-sm'),
+          counts && counts.total > 0 ? 'Nothing is waiting for you. Every enquiry has been answered.' : 'Nothing is waiting for you. When someone gets in touch, it shows up here.'));
+      }
+    });
+
+    // The people behind that count, a tap away from their conversation.
+    patch(ov, 'wait', [newCount, top.map(function (l) { return [l.id, l.name, summaryLine(l), l.createdAt, l.source]; })], function () {
+      var list = h('ul', { class: 'lead-list' });
+      top.forEach(function (lead) {
+        var src = SOURCE[lead.source] || { label: 'Got in touch', icon: 'note' };
+        list.append(h('li', { class: 'lead-row', 'data-status': 'new' },
+          h('a', { class: 'lead-link', href: '#/leads/' + enc(lead.id), 'data-key': 'wait-' + lead.id },
+            h('span', { class: 'row-top' },
+              h('span', { class: 'row-name' }, leadName(lead)),
+              timeEl(lead.createdAt, 'row-time')),
+            h('span', { class: 'row-summary' }, summaryLine(lead)),
+            h('span', { class: 'row-source' }, icon(src.icon), src.label))));
+      });
+      ov.waitCard.replaceChildren(
+        h('div', { class: 'card-head' },
+          h('h3', { class: 'card-title', id: 'wait-title' }, 'Waiting for a reply'),
+          h('a', { class: 'linkish', href: '#/leads', 'data-key': 'wait-all', onclick: onlyNew }, newCount > top.length ? 'See all ' + fmt(newCount) : 'Open enquiries')),
+        list);
+    });
+
+    var shown = top.length > 0;
+    if (shown !== ov.waitShown) {
+      ov.waitShown = shown;
+      ov.bodySig = null;      // the card joins or leaves the cards below
+      renderStats();
+    }
+    refreshTimes();
+  }
+
+  function attnRow(iconName, tone, title, text, action) {
+    return h('div', { class: 'attn-row', 'data-tone': tone },
+      h('span', { class: 'attn-mark' }, icon(iconName)),
+      h('div', { class: 'attn-text' }, h('p', { class: 'attn-title' }, title), text ? h('p', { class: 'fine' }, text) : null),
+      action ? h('div', { class: 'attn-action' }, action) : null);
+  }
+
+  // One nudge at most, and only when the numbers plainly point at it.
+  function attentionTip() {
+    var s = state.stats;
+    if (!s || state.statsStatus === 'unavailable' || !isLive()) return '';
+    var reached = 0;
+    s.funnel.forEach(function (f) { if (f.key === 'reached_out') reached = f.count; });
+    if (s.totals.visitors >= 20 && s.totals.contactClicks === 0 && reached === 0 && s.totals.enquiries === 0) return 'contact';
+    return '';
+  }
+
+  /* The numbers. */
+
+  function paintStatsBar() {
+    if (!ov) return;
+    PERIODS.forEach(function (n) { ov.radios[n].checked = n === state.statsDays; });
+    var unavailable = state.statsStatus === 'unavailable';
+    ov.periods.hidden = unavailable;
+    // While another period is on its way, the old one stays on screen, dimmed.
+    var waiting = statsLoading && !!state.stats && state.stats.days !== state.statsDays;
+    if (waiting) ov.body.setAttribute('aria-busy', 'true'); else ov.body.removeAttribute('aria-busy');
+    patch(ov, 'updated', [state.statsOkAt, unavailable], function () {
+      ov.updated.replaceChildren();
+      if (state.statsOkAt && !unavailable) append(ov.updated, ['Updated ', timeEl(state.statsOkAt)]);
+    });
+  }
+
+  function emptyPeriod(s) {
+    var t = s.totals;
+    return !(t.views || t.visitors || t.engaged || t.contactClicks || t.assistantOpens || t.talks || t.enquiries) && s.recent.length === 0;
+  }
+
+  function renderStats() {
+    if (!ov) return;
+    paintStatsBar();
+    var st = state.statsStatus;
+    var s = state.stats;
+
+    patch(ov, 'alert', st === 'stale' ? state.statsError : '', function () {
+      if (st !== 'stale') { ov.alert.hidden = true; ov.alert.replaceChildren(); return; }
+      ov.alert.hidden = false;
+      ov.alert.replaceChildren(h('div', { class: 'notice', 'data-kind': 'error', role: 'status' }, icon('alert'),
+        h('div', { class: 'notice-body' }, h('strong', null, 'These numbers may be out of date.'),
+          h('span', null, state.statsError + ' ', h('button', { type: 'button', class: 'linkish', onclick: function () { loadStats(true); } }, 'Try now')))));
+    });
+
+    var data = null;
+    if (s) { data = {}; Object.keys(s).forEach(function (k) { if (k !== 'updatedAt') data[k] = s[k]; }); }
+    var counts = state.counts;
+    var sig = JSON.stringify([s ? 'data' : st, s ? '' : state.statsError, data, siteUrl(), isLive(), ov.waitShown, st === 'unavailable' && counts ? counts.total : 0]);
+    if (sig === ov.bodySig) { refreshTimes(); drawCharts(false); return; }
+    ov.bodySig = sig;
+
+    var active = document.activeElement;
+    var focusKey = active && ov.body.contains(active) ? active.getAttribute('data-key') : null;
+    ov.charts = [];
+    var nodes = buildStatsBody();
+    ov.body.replaceChildren();
+    append(ov.body, nodes);
+    drawCharts(true);
+    // Whatever had focus was rebuilt: put focus back on its replacement, or on the section's heading.
+    if (focusKey) focusEl(ov.body.querySelector('[data-key="' + focusKey + '"]') || ov.statsTitle, true);
+    refreshTimes();
+  }
+
+  function drawCharts(force) {
+    if (!ov) return;
+    ov.charts.forEach(function (c) { c.draw(force); });
+  }
+
+  function buildStatsBody() {
+    var st = state.statsStatus;
+    var s = state.stats;
+    var wait = ov.waitShown ? ov.waitCard : null;
+
+    if (st === 'unavailable') {
+      var counts = state.counts;
+      return [h('div', { class: 'notice', role: 'status' }, icon('alert'),
+        h('div', { class: 'notice-body' },
+          h('strong', null, 'Visitor numbers aren’t available yet'),
+          h('span', null, 'Counting views, visitors and taps needs an update that hasn’t reached your site yet. The numbers will appear here on their own. Your enquiries and your website controls work as usual.'),
+          counts && counts.total > 0 ? h('span', null, 'So far you have had ' + plural(counts.total, 'enquiry', 'enquiries') + '. ', h('a', { class: 'linkish', href: '#/leads', 'data-key': 'all-enquiries' }, 'See them')) : null)),
+        wait];
+    }
+
+    if (!s) {
+      if (st === 'error') {
+        return [h('div', { class: 'notice', 'data-kind': 'error', role: 'alert' }, icon('alert'),
+          h('div', { class: 'notice-body' }, h('strong', null, 'We couldn’t load your numbers.'), h('span', null, state.statsError || ''),
+            h('div', null, h('button', { type: 'button', class: 'linkish', 'data-key': 'retry', onclick: function () { state.statsStatus = 'loading'; state.statsError = null; renderStats(); loadStats(true); } }, 'Try again')))),
+          wait];
+      }
+      var ghosts = h('div', { class: 'slip tiles', role: 'status', 'aria-label': 'Loading your numbers' });
+      for (var g = 0; g < 6; g++) ghosts.append(h('div', { class: 'ghost' }, h('i'), h('i'), h('i')));
+      return [ghosts, wait];
+    }
+
+    if (emptyPeriod(s)) return [s.previous.visitors > 0 ? buildLede(s) : null, buildFirstVisitors(s), wait];
+
+    var grid = h('div', { class: 'ov-grid', 'data-wait': wait ? 'true' : 'false' },
+      buildTrendCard(s), wait, buildFunnelCard(s), buildClicksCard(s), buildSectionsCard(s),
+      buildSourcesCard(s), buildDevicesCard(s), buildHoursCard(s), buildAssistantCard(s), buildFeedCard(s));
+    return [buildLede(s), buildTiles(s), buildCompareNote(s), grid];
+  }
+
+  function periodWords(s) { return 'the last ' + s.days + ' days'; }
+  function beforeWords(s) { return 'the ' + s.days + ' days before'; }
+
+  // One sentence that answers "is my site working?".
+  function buildLede(s) {
+    var t = s.totals;
+    var p = s.previous;
+    var el = h('p', { class: 'ov-lede' });
+    if (t.visitors === 0) {
+      append(el, ['Nobody visited your site in ' + periodWords(s) + '.',
+        p.visitors > 0 ? ' In ' + beforeWords(s) + ', ' + plural(p.visitors, 'person', 'people') + ' did.' : '']);
+      return el;
+    }
+    append(el, ['In ' + periodWords(s) + ', ', h('strong', null, plural(t.visitors, 'person', 'people')), ' visited your site',
+      t.enquiries > 0 ? [' and ', h('strong', null, fmt(t.enquiries)), ' left an enquiry.'] : '. Nobody has left an enquiry yet.']);
+    if (p.visitors > 0) {
+      var change = Math.round((t.visitors - p.visitors) / p.visitors * 100);
+      el.append(change === 0 ? ' That is about the same number of visitors as ' + beforeWords(s) + '.'
+        : ' That is ' + fmt(Math.abs(change)) + '% ' + (change > 0 ? 'more' : 'fewer') + ' visitors than ' + beforeWords(s) + '.');
+    }
+    return el;
+  }
+
+  function buildDelta(cur, prev, s) {
+    var el = h('p', { class: 'tile-delta' });
+    if (!prev && !cur) { el.setAttribute('data-dir', 'none'); append(el, ['–', h('span', { class: 'sr-only' }, ' nothing to compare')]); return el; }
+    if (!prev) { el.setAttribute('data-dir', 'up'); append(el, [icon('up'), 'New', h('span', { class: 'sr-only' }, ': none in ' + beforeWords(s))]); return el; }
+    var change = Math.round((cur - prev) / prev * 100);
+    if (change === 0) { el.setAttribute('data-dir', 'same'); append(el, ['Same', h('span', { class: 'sr-only' }, ' as ' + beforeWords(s))]); return el; }
+    el.setAttribute('data-dir', change > 0 ? 'up' : 'down');
+    append(el, [icon(change > 0 ? 'up' : 'down'), fmt(Math.abs(change)) + '%',
+      h('span', { class: 'sr-only' }, (change > 0 ? ' more' : ' less') + ' than ' + beforeWords(s))]);
+    return el;
+  }
+
+  function buildTiles(s) {
+    var t = s.totals;
+    var p = s.previous;
+    var tiles = [
+      { label: 'Visitors', value: t.visitors, prev: p.visitors, note: 'Different people who came' },
+      { label: 'Views', value: t.views, prev: p.views, note: 'Times your pages were opened' },
+      { label: 'Stayed and read', value: t.engaged, prev: p.engaged, note: t.engaged ? capFirst(perHundred(t.engagementRate)) : 'People who scrolled or stayed a while' },
+      { label: 'Tapped to contact', value: t.contactClicks, prev: p.contactClicks, note: 'Call, WhatsApp, email or map' },
+      { label: 'Talked to the assistant', value: t.talks, prev: p.talks, note: t.talks ? duration(t.talkSeconds) + ' of talking' : 'Conversations on your site' },
+      { label: 'Enquiries', value: t.enquiries, prev: p.enquiries, note: t.enquiries ? capFirst(perHundred(t.conversionRate)) : 'Nobody has left one yet', href: '#/leads', linkLabel: 'See enquiries' }
+    ];
+    var list = h('ul', { class: 'slip tiles', 'aria-label': 'Totals for ' + periodWords(s) });
+    tiles.forEach(function (tile) {
+      var inner = [
+        h('p', { class: 'tile-label' }, tile.label),
+        h('div', { class: 'tile-figure' }, h('p', { class: 'tile-num' }, fmt(tile.value)), buildDelta(tile.value, tile.prev, s)),
+        h('p', { class: 'tile-note' }, tile.note)];
+      list.append(h('li', { class: 'tile' + (tile.href ? ' tile-linked' : '') }, tile.href
+        ? h('a', { class: 'tile-link', href: tile.href }, inner, h('span', { class: 'tile-go' }, tile.linkLabel, icon('go', 'icon-sm')))
+        : inner));
+    });
+    return list;
+  }
+
+  function buildCompareNote(s) {
+    var from = parseDay(s.from);
+    var text = 'Arrows compare with ' + beforeWords(s);
+    if (from) {
+      var prevTo = new Date(from.getTime() - 86400000);
+      var prevFrom = new Date(from.getTime() - s.days * 86400000);
+      text += ' (' + dayLabel(prevFrom) + ' to ' + dayLabel(prevTo) + ')';
+    }
+    return h('p', { class: 'fine ov-compare' }, text + '.');
+  }
+
+  function card(key, title, kids, wide) {
+    var id = nextId('card');
+    var el = h('section', { class: 'slip slip-pad card' + (wide ? ' card-' + wide : ''), 'aria-labelledby': id, 'data-card': key },
+      h('h3', { class: 'card-title', id: id }, title));
+    append(el, kids);
+    return el;
+  }
+
+  // Ranked rows: a name, a number, and a thin bar for a quick comparison.
+  // opts: { unit: [one, many], share: true to add "46%", icons: { label: iconName }, keepOrder, base }
+  function rankList(items, opts) {
+    opts = opts || {};
+    var rows = items.filter(function (x) { return x.count > 0 || opts.keepOrder; });
+    if (!opts.keepOrder) rows = rows.slice().sort(function (a, b) { return b.count - a.count; });
+    if (!opts.keepOrder && rows.length > 6) {
+      var rest = rows.slice(5);
+      rows = rows.slice(0, 5);
+      rows.push({ label: 'Everything else', count: rest.reduce(function (n, x) { return n + x.count; }, 0) });
+    }
+    var total = rows.reduce(function (n, x) { return n + x.count; }, 0);
+    var base = opts.base || Math.max.apply(null, rows.map(function (x) { return x.count; }).concat([1]));
+    var list = h(opts.keepOrder ? 'ol' : 'ul', { class: 'rank' });
+    rows.forEach(function (row) {
+      var fill = h('i');
+      fill.style.width = (row.count > 0 ? Math.max(1.5, Math.min(100, row.count / base * 100)) : 0) + '%';
+      var value = [h('strong', { class: 'num' }, fmt(row.count))];
+      if (opts.unit) value.push(h('span', { class: 'sr-only' }, ' ' + (Math.round(row.count) === 1 ? opts.unit[0] : opts.unit[1])));
+      if (opts.share && total > 0) value.push(h('span', { class: 'rank-share num' }, Math.round(row.count / total * 100) + '%'));
+      list.append(h('li', { class: 'rank-row' },
+        h('span', { class: 'rank-label' }, row.icon ? icon(row.icon, 'icon-sm') : null, h('span', null, row.label)),
+        h('span', { class: 'rank-val' }, value),
+        h('span', { class: 'rank-bar', 'aria-hidden': 'true' }, fill),
+        row.note ? h('span', { class: 'rank-note' }, row.note) : null));
+    });
+    return list;
+  }
+
+  function emptyLine(text) { return h('p', { class: 'fine card-empty' }, text); }
+
+  function buildFunnelCard(s) {
+    var steps = s.funnel;
+    var first = steps.length ? steps[0].count : 0;
+    if (!steps.length || first === 0) {
+      return card('funnel', 'From visitor to enquiry', [emptyLine('Once people visit, this shows how many stay, how many reach out, and how many leave an enquiry.')]);
+    }
+    var rows = steps.map(function (step, i) {
+      return { label: step.label, count: step.count, note: i === 0 ? null : capFirst(perHundred(step.count / first)) };
+    });
+    var kids = [h('p', { class: 'fine' }, 'How far people got, out of everyone who visited.'),
+      rankList(rows, { keepOrder: true, base: first, unit: ['person', 'people'] })];
+    if (s.totals.avgSeconds > 0) kids.push(h('p', { class: 'fine' }, 'A typical visit lasts about ' + duration(s.totals.avgSeconds) + '.'));
+    return card('funnel', 'From visitor to enquiry', kids);
+  }
+
+  function buildClicksCard(s) {
+    var rows = s.clicks.map(function (c) { return { label: c.label, count: c.count, icon: CLICK_ICON[c.kind] || 'tap' }; });
+    var any = rows.some(function (r) { return r.count > 0; });
+    return card('clicks', 'What people tapped', any
+      ? [rankList(rows, { unit: ['tap', 'taps'] })]
+      : [emptyLine('Nobody has tapped a button in this period. Calls, WhatsApp chats and directions show up here when they do.')]);
+  }
+
+  function buildSectionsCard(s) {
+    var any = s.sections.some(function (r) { return r.count > 0; });
+    return card('sections', 'Parts of your page people saw', any
+      ? [h('p', { class: 'fine' }, 'Fewer people reach the parts lower down the page.'), rankList(s.sections, { keepOrder: true, unit: ['time', 'times'] })]
+      : [emptyLine('This shows how far down your page people scroll, part by part.')]);
+  }
+
+  function buildSourcesCard(s) {
+    var any = s.sources.some(function (r) { return r.count > 0; });
+    var kids = any ? [rankList(s.sources, { share: true, unit: ['visitor', 'visitors'] })]
+      : [emptyLine('This shows where your visitors found your link: WhatsApp, Google, Instagram and so on.')];
+    if (any && s.sources.some(function (r) { return r.count > 0 && /^direct$/i.test(r.label); })) {
+      kids.push(h('p', { class: 'fine' }, '“Direct” means they opened your link itself, for example from a message or a visiting card.'));
+    }
+    return card('sources', 'Where visitors came from', kids);
+  }
+
+  function buildDevicesCard(s) {
+    var d = s.devices;
+    var total = d.mobile + d.desktop + d.tablet;
+    if (!total) return card('devices', 'Phone or computer', [emptyLine('This shows whether people open your site on a phone, a tablet or a computer.')]);
+    var rows = [{ label: 'Phone', count: d.mobile, icon: 'smartphone' }, { label: 'Computer', count: d.desktop, icon: 'desktop' }, { label: 'Tablet', count: d.tablet, icon: 'tablet' }];
+    var top = rows.slice().sort(function (a, b) { return b.count - a.count; })[0];
+    return card('devices', 'Phone or computer', [
+      h('p', { class: 'fine' }, 'Most of your visitors (' + Math.round(top.count / total * 100) + ' of every 100) use a ' + top.label.toLowerCase() + '.'),
+      rankList(rows, { share: true, unit: ['visitor', 'visitors'] })]);
+  }
+
+  function buildAssistantCard(s) {
+    var t = s.totals;
+    if (!t.talks) {
+      return card('assistant', 'Assistant conversations', [emptyLine(t.assistantOpens > 0
+        ? 'People opened the assistant ' + plural(t.assistantOpens, 'time', 'times') + ' in this period, but nobody started talking.'
+        : 'Nobody has talked to the assistant in this period. It sits in the corner of your site and answers questions for you, day and night.')]);
+    }
+    var facts = h('dl', { class: 'mini-facts' },
+      h('div', null, h('dt', null, 'Conversations'), h('dd', null, fmt(t.talks))),
+      h('div', null, h('dt', null, 'Time spent talking'), h('dd', null, duration(t.talkSeconds))),
+      h('div', null, h('dt', null, 'A typical conversation'), h('dd', null, duration(t.talkSeconds / t.talks))));
+    var kids = [facts];
+    if (t.assistantOpens > 0) kids.push(h('p', { class: 'fine' }, 'The assistant was opened ' + plural(t.assistantOpens, 'time', 'times') + '.'));
+    var langs = s.languages.filter(function (l) { return l.count > 0; }).map(function (l) { return { label: langName(l.lang), count: l.count }; });
+    if (langs.length) kids.push(h('h4', { class: 'section-title' }, 'Languages spoken'), rankList(langs, { share: langs.length > 1, unit: ['conversation', 'conversations'] }));
+    return card('assistant', 'Assistant conversations', kids);
+  }
+
+  function buildFeedCard(s) {
+    if (!s.recent.length) return card('feed', 'Latest activity', [emptyLine('Visits, taps, conversations and enquiries appear here as they happen.')], 'feed');
+    var PEEK = 6;
+    var open = !!ov.open.feed;
+    var list = h('ol', { class: 'feed' });
+    (open ? s.recent : s.recent.slice(0, PEEK)).forEach(function (item) {
+      list.append(h('li', { class: 'feed-row', 'data-type': item.type },
+        h('span', { class: 'feed-mark' }, icon(FEED_ICON[item.type] || 'dot', 'icon-sm')),
+        h('span', { class: 'feed-text' }, item.text),
+        timeEl(item.at, 'feed-time')));
+    });
+    var kids = [list];
+    if (s.recent.length > PEEK) {
+      kids.push(h('button', { type: 'button', class: 'btn btn-block', 'aria-expanded': open ? 'true' : 'false', 'data-key': 'feed-toggle', onclick: function () {
+        ov.open.feed = !open;
+        ov.bodySig = null;
+        renderStats();
+      } }, open ? 'Show less' : 'Show all ' + s.recent.length));
+    }
+    return card('feed', 'Latest activity', kids, 'feed');
+  }
+
+  // No visits in this period: say what will show up here, and how to get the first visitors.
+  function buildFirstVisitors(s) {
+    var live = isLive();
+    var slip = h('div', { class: 'slip blank-slip' },
+      h('p', { class: 'blank-eyebrow' }, 'No visitors in ' + periodWords(s)),
+      h('h3', { class: 'blank-title' }, live ? 'Share your address to bring people in' : 'Your numbers start once your site is public'),
+      h('ul', { class: 'blank-lines' },
+        h('li', null, icon('eye'), h('span', null, 'How many people open your site each day, and how many stay to read it.')),
+        h('li', null, icon('tap'), h('span', null, 'Which buttons they tap: call, WhatsApp, directions.')),
+        h('li', null, icon('mic'), h('span', null, 'Their conversations with your site’s assistant, and the enquiries they leave.'))));
+    if (live) {
+      slip.append(
+        h('p', { class: 'fine' }, 'Send your address to your customers on WhatsApp, print it on your bills and visiting card, and add it to your Google and Instagram profiles.'),
+        addressRow(siteUrl()));
+      var share = shareButton('Share your site', true);
+      if (share) { share.classList.add('btn-block'); slip.append(share); }
+    } else {
+      slip.append(
+        h('p', { class: 'fine' }, 'Visitors can only find your site after you publish it.'),
+        h('a', { class: 'btn btn-primary btn-block', href: '#/website', 'data-key': 'to-website' }, 'Review and publish', icon('go', 'icon-sm')));
+    }
+    if (s.days < 90) {
+      slip.append(h('p', { class: 'fine' }, h('button', { type: 'button', class: 'linkish', 'data-key': 'longer', onclick: function () { setPeriod(90); } }, 'Look at the last 90 days instead')));
+    }
+    return slip;
+  }
+
+  /* Charts: drawn here as plain SVG, sized to the space they get. */
+
+  var SVG_NS = 'http://www.w3.org/2000/svg';
+  function sv(tag, attrs) {
+    var el = document.createElementNS(SVG_NS, tag);
+    if (attrs) Object.keys(attrs).forEach(function (k) { if (attrs[k] != null) el.setAttribute(k, String(attrs[k])); });
+    for (var i = 2; i < arguments.length; i++) if (arguments[i] != null) el.append(arguments[i]);
+    return el;
+  }
+
+  // A round number at or above v whose half is also round, for a three-line scale.
+  function niceMax(v) {
+    if (v <= 4) return 4;
+    var p = Math.pow(10, Math.floor(Math.log(v) / Math.LN10));
+    var n = v / p;
+    return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 4 ? 4 : n <= 6 ? 6 : n <= 8 ? 8 : 10) * p;
+  }
+
+  function r1(n) { return Math.round(n * 10) / 10; }
+
+  // A chart you can run a finger, a mouse or the arrow keys along. The reading under it
+  // is written out in words, so nothing is only there on hover.
+  // cfg: { key, label, count, idle, tall, height(W), paint(svg, W, H) -> geom { nearest(px) }, mark(layer, i, geom), read(i) -> nodes }
+  function scrubChart(cfg) {
+    var plot = h('div', { class: 'chart-plot' });
+    var readout = h('p', { class: 'chart-readout' + (cfg.tall ? ' chart-readout-tall' : ''), 'aria-live': 'polite' });
+    var wrap = h('div', { class: 'chart', tabindex: '0', role: 'group', 'aria-label': cfg.label, 'data-key': cfg.key }, plot, readout);
+    var sel = -1;
+    var geom = null;
+    var layer = null;
+    var lastW = 0;
+
+    function show(i) {
+      sel = i;
+      if (layer && geom) { layer.replaceChildren(); if (i >= 0) cfg.mark(layer, i, geom); }
+      readout.replaceChildren();
+      var parts = i >= 0 ? cfg.read(i).filter(Boolean) : [cfg.idle];
+      parts.forEach(function (part, k) {
+        // Spoken as "Mon 9 Nov, 15 views, 11 visitors"; the commas are not needed by eye.
+        if (k) readout.append(h('i', { class: 'sr-only' }, ', '));
+        append(readout, [part]);
+      });
+      readout.setAttribute('data-idle', i >= 0 ? 'false' : 'true');
+    }
+
+    function draw(force) {
+      var W = Math.floor(plot.clientWidth);
+      if (!W || (!force && W === lastW)) return;
+      lastW = W;
+      var H = cfg.height(W);
+      var svg = sv('svg', { class: 'chart-svg', viewBox: '0 0 ' + W + ' ' + H, width: W, height: H, 'aria-hidden': 'true', focusable: 'false' });
+      geom = cfg.paint(svg, W, H);
+      layer = sv('g');
+      svg.append(layer);
+      plot.replaceChildren(svg);
+      show(sel);
+    }
+
+    function at(e) {
+      if (!geom) return;
+      show(geom.nearest(e.clientX - plot.getBoundingClientRect().left));
+    }
+    plot.addEventListener('pointerdown', at);
+    plot.addEventListener('pointermove', function (e) { if (e.pointerType === 'mouse' || e.buttons) at(e); });
+    plot.addEventListener('pointerleave', function (e) { if (e.pointerType === 'mouse' && document.activeElement !== wrap) show(-1); });
+    wrap.addEventListener('keydown', function (e) {
+      var last = cfg.count - 1;
+      var next = null;
+      if (e.key === 'ArrowLeft') next = sel < 0 ? last : Math.max(0, sel - 1);
+      else if (e.key === 'ArrowRight') next = sel < 0 ? 0 : Math.min(last, sel + 1);
+      else if (e.key === 'Home') next = 0;
+      else if (e.key === 'End') next = last;
+      else if (e.key === 'Escape' && sel >= 0) next = -1;
+      if (next === null || last < 0) return;
+      e.preventDefault();
+      show(next);
+    });
+
+    show(-1);
+    return { el: wrap, draw: draw };
+  }
+
+  // The same numbers as rows, for anyone who would rather read than look.
+  function dataTable(key, caption, heads, rows) {
+    var table = h('table', { class: 'data-table' }, h('caption', { class: 'sr-only' }, caption),
+      h('thead', null, h('tr', null, heads.map(function (x, i) { return h('th', { scope: 'col', class: i ? 'num' : null }, x); }))));
+    var body = h('tbody');
+    rows.forEach(function (cells) {
+      body.append(h('tr', null, cells.map(function (c, i) { return i === 0 ? h('th', { scope: 'row' }, c) : h('td', { class: 'num' }, c); })));
+    });
+    table.append(body);
+    var det = h('details', { class: 'chart-table' },
+      h('summary', { 'data-key': key }, 'See these numbers as a table'),
+      h('div', { class: 'table-scroll', tabindex: '0', role: 'region', 'aria-label': caption }, table));
+    det.open = !!ov.open[key];
+    det.addEventListener('toggle', function () { ov.open[key] = det.open; });
+    return det;
+  }
+
+  function legendItem(kind, label) {
+    return h('li', null, h('span', { class: 'key key-' + kind, 'aria-hidden': 'true' }), label);
+  }
+
+  function buildTrendCard(s) {
+    var daily = s.daily;
+    var n = daily.length;
+    if (!n) return card('trend', 'Day by day', [emptyLine('Your daily views and visitors will be drawn here.')], 'wide');
+    var top = niceMax(Math.max.apply(null, daily.map(function (d) { return Math.max(d.views, d.visitors); })));
+    var enquiryDays = daily.filter(function (d) { return d.enquiries > 0; }).length;
+
+    var chart = scrubChart({
+      key: 'trend', count: n,
+      label: 'Chart of views and visitors for each of ' + periodWords(s) + '. Use the left and right arrow keys to read one day at a time.',
+      idle: 'Tap or move along the chart to read one day.', tall: true,
+      height: function (W) { return W >= 560 ? 240 : 200; },
+      paint: function (svg, W, H) {
+        var padX = 10, padTop = 18, rug = 18, axis = 18;
+        var base = H - axis - rug;
+        var plotW = W - padX * 2;
+        var plotH = base - padTop;
+        var x = function (i) { return r1(padX + (n <= 1 ? plotW / 2 : i * plotW / (n - 1))); };
+        var y = function (v) { return r1(base - (v / top) * plotH); };
+        var rugY = base + rug / 2 + 1;
+
+        [top, top / 2, 0].forEach(function (tick) {
+          svg.append(sv('line', { class: tick ? 'chart-grid' : 'chart-base', x1: 0, x2: W, y1: Math.round(y(tick)) + 0.5, y2: Math.round(y(tick)) + 0.5 }));
+          if (tick) svg.append(sv('text', { class: 'chart-tick', x: 0, y: Math.round(y(tick)) - 4 }, fmt(tick)));
+        });
+
+        var path = function (key) { return daily.map(function (d, i) { return (i ? 'L' : 'M') + x(i) + ' ' + y(d[key]); }).join(''); };
+        if (n > 1) {
+          svg.append(
+            sv('path', { class: 'chart-area', d: path('visitors') + 'L' + x(n - 1) + ' ' + base + 'L' + x(0) + ' ' + base + 'Z' }),
+            sv('path', { class: 'chart-line line-views', d: path('views') }),
+            sv('path', { class: 'chart-line line-visitors', d: path('visitors') }));
+        } else {
+          svg.append(sv('circle', { class: 'chart-dot dot-views', cx: x(0), cy: y(daily[0].views), r: 4.5 }),
+            sv('circle', { class: 'chart-dot dot-visitors', cx: x(0), cy: y(daily[0].visitors), r: 4.5 }));
+        }
+
+        daily.forEach(function (d, i) {
+          if (d.enquiries > 0) svg.append(sv('circle', { class: 'chart-dot dot-enquiry', cx: x(i), cy: rugY, r: n > 45 ? 3.5 : 4.5 }));
+        });
+
+        var labels = n >= 3 && W >= 260 ? [0, Math.floor((n - 1) / 2), n - 1] : n >= 2 ? [0, n - 1] : [0];
+        labels.forEach(function (i, k) {
+          var edge = labels.length > 1 && (k === 0 || k === labels.length - 1);
+          svg.append(sv('text', { class: 'chart-tick', y: H - 3,
+            x: !edge ? x(i) : k === 0 ? 0 : W,
+            'text-anchor': !edge ? 'middle' : k === 0 ? 'start' : 'end' }, dayLabel(daily[i].date)));
+        });
+
+        return { x: x, y: y, base: base, top: padTop, rugY: rugY,
+          nearest: function (px) { return n <= 1 ? 0 : Math.max(0, Math.min(n - 1, Math.round((px - padX) / (plotW / (n - 1))))); } };
+      },
+      mark: function (layer, i, g) {
+        var d = daily[i];
+        layer.append(
+          sv('line', { class: 'chart-cursor', x1: g.x(i), x2: g.x(i), y1: g.top - 6, y2: g.rugY + 8 }),
+          sv('circle', { class: 'chart-dot dot-views', cx: g.x(i), cy: g.y(d.views), r: 4.5 }),
+          sv('circle', { class: 'chart-dot dot-visitors', cx: g.x(i), cy: g.y(d.visitors), r: 4.5 }));
+      },
+      read: function (i) {
+        var d = daily[i];
+        return [h('strong', null, dayLabel(d.date, true)),
+          h('span', null, h('span', { class: 'key key-views', 'aria-hidden': 'true' }), plural(d.views, 'view', 'views')),
+          h('span', null, h('span', { class: 'key key-visitors', 'aria-hidden': 'true' }), plural(d.visitors, 'visitor', 'visitors')),
+          d.enquiries > 0 ? h('span', null, h('span', { class: 'key key-enquiry', 'aria-hidden': 'true' }), plural(d.enquiries, 'enquiry', 'enquiries')) : null];
+      }
+    });
+    ov.charts.push(chart);
+
+    var best = daily.reduce(function (a, d) { return d.visitors > a.visitors ? d : a; }, daily[0]);
+    var rows = daily.slice().reverse().map(function (d) { return [dayLabel(d.date, true), fmt(d.views), fmt(d.visitors), fmt(d.enquiries)]; });
+    return card('trend', 'Day by day', [
+      best.visitors > 0 ? h('p', { class: 'fine' }, 'Your busiest day was ' + dayLabel(best.date, true) + ', with ' + plural(best.visitors, 'visitor', 'visitors') + '.'
+        + (enquiryDays ? ' Enquiries came in on ' + plural(enquiryDays, 'day', 'days') + '.' : '')) : null,
+      h('ul', { class: 'chart-legend' }, legendItem('views', 'Views'), legendItem('visitors', 'Visitors'), legendItem('enquiry', 'A day with an enquiry')),
+      chart.el,
+      dataTable('trend-table', 'Views, visitors and enquiries for each day, newest first', ['Day', 'Views', 'Visitors', 'Enquiries'], rows)
+    ], 'wide');
+  }
+
+  function buildHoursCard(s) {
+    var hours = s.hours;
+    var total = hours.reduce(function (a, b) { return a + b; }, 0);
+    if (!total) return card('hours', 'Busiest time of day', [emptyLine('This shows what time of day people visit, so you know when to be near your phone.')]);
+    var peak = 0;
+    hours.forEach(function (v, i) { if (v > hours[peak]) peak = i; });
+    // A second busy spell, if there is one well away from the first.
+    var second = -1;
+    hours.forEach(function (v, i) {
+      var gap = Math.min(Math.abs(i - peak), 24 - Math.abs(i - peak));
+      if (gap >= 4 && v >= hours[peak] * 0.7 && (second < 0 || v > hours[second])) second = i;
+    });
+    var top = niceMax(hours[peak]);
+    var tz = timezoneName(s.timezone);
+
+    var chart = scrubChart({
+      key: 'hours', count: 24,
+      label: 'Chart of visitors by hour of the day. Use the left and right arrow keys to read one hour at a time.',
+      idle: 'Tap or move along the chart to read one hour.' + (tz ? ' Hours are in ' + tz + '.' : ''),
+      height: function () { return 150; },
+      paint: function (svg, W, H) {
+        var padTop = 18, axis = 18;
+        var base = H - axis;
+        var band = W / 24;
+        var bw = Math.max(3, Math.min(14, Math.floor(band) - 2));
+        var bar = function (i, cls) {
+          var v = hours[i];
+          var bh = v > 0 ? Math.max(2, (v / top) * (base - padTop)) : 0;
+          var x0 = r1(i * band + (band - bw) / 2);
+          var rr = Math.min(4, bw / 2, bh);
+          if (!bh) return sv('rect', { class: cls + ' bar-none', x: x0, y: base - 1, width: bw, height: 1 });
+          return sv('path', { class: cls, d: 'M' + x0 + ' ' + base + 'V' + r1(base - bh + rr) + 'Q' + x0 + ' ' + r1(base - bh) + ' ' + r1(x0 + rr) + ' ' + r1(base - bh)
+            + 'H' + r1(x0 + bw - rr) + 'Q' + r1(x0 + bw) + ' ' + r1(base - bh) + ' ' + r1(x0 + bw) + ' ' + r1(base - bh + rr) + 'V' + base + 'Z' });
+        };
+        var topY = Math.round(base - (base - padTop)) + 0.5;
+        svg.append(sv('line', { class: 'chart-grid', x1: 0, x2: W, y1: topY, y2: topY }), sv('text', { class: 'chart-tick', x: 0, y: topY - 4 }, fmt(top)),
+          sv('line', { class: 'chart-base', x1: 0, x2: W, y1: base + 0.5, y2: base + 0.5 }));
+        for (var i = 0; i < 24; i++) if (hours[i] > 0) svg.append(bar(i, 'chart-bar'));
+        [0, 6, 12, 18].forEach(function (i) {
+          svg.append(sv('text', { class: 'chart-tick', y: H - 3, x: i === 0 ? 0 : r1(i * band + band / 2), 'text-anchor': i === 0 ? 'start' : 'middle' }, hourLabel(i)));
+        });
+        return { bar: bar, nearest: function (px) { return Math.max(0, Math.min(23, Math.floor(px / band))); } };
+      },
+      mark: function (layer, i, g) { layer.append(g.bar(i, 'chart-bar bar-on')); },
+      read: function (i) { return [h('strong', null, hourLabel(i) + ' to ' + hourLabel(i + 1)), h('span', null, plural(hours[i], 'visitor', 'visitors'))]; }
+    });
+    ov.charts.push(chart);
+
+    var rows = hours.map(function (v, i) { return [hourLabel(i) + ' to ' + hourLabel(i + 1), fmt(v)]; });
+    return card('hours', 'Busiest time of day', [
+      h('p', { class: 'fine' }, 'Most people visit around ', h('strong', null, hourLabel(peak)), second >= 0 ? [', and again around ', h('strong', null, hourLabel(second))] : null,
+        '. A good time to be near your phone.'),
+      chart.el,
+      dataTable('hours-table', 'Visitors for each hour of the day', ['Hour', 'Visitors'], rows)
+    ]);
+  }
+
+  /* ------------------------------------------------------------------ */
   /* Leads: the list                                                     */
   /* ------------------------------------------------------------------ */
 
   function buildLeadsView() {
     var view = $('view-leads');
-    ui.leadsTitle = h('h1', { class: 'page-title', id: 'leads-title', tabindex: '-1' }, 'Leads');
+    ui.leadsTitle = h('h1', { class: 'page-title', id: 'leads-title', tabindex: '-1' }, 'Enquiries');
     ui.leadsTotal = h('p', { class: 'fine num' });
     ui.leadsAlert = h('div', { hidden: true });
-    ui.tally = h('div', { class: 'tally slip', role: 'group', 'aria-label': 'Filter leads by status' });
+    ui.tally = h('div', { class: 'tally slip', role: 'group', 'aria-label': 'Filter enquiries by status' });
     ui.tallyCells = {};
     STATUS_ORDER.forEach(function (s) {
       var num = h('span', { class: 'tally-num' }, '–');
@@ -713,7 +1683,7 @@
         state.filter = state.filter === s ? 'all' : s;
         renderLeads();
         var shown = filteredLeads().length;
-        announce(state.filter === 'all' ? 'Showing all leads.' : 'Showing ' + shown + ' ' + STATUS[s].label.toLowerCase() + (shown === 1 ? ' lead.' : ' leads.'));
+        announce(state.filter === 'all' ? 'Showing all enquiries.' : 'Showing ' + shown + ' ' + STATUS[s].label.toLowerCase() + (shown === 1 ? ' enquiry.' : ' enquiries.'));
       });
       ui.tallyCells[s] = { cell: cell, num: num };
       ui.tally.append(cell);
@@ -749,7 +1719,7 @@
     return h('button', { type: 'button', class: 'linkish', onclick: function () {
       state.filter = 'all';
       renderLeads();
-      announce('Showing all leads.');
+      announce('Showing all enquiries.');
       focusEl(ui.leadsTitle, true);
     } }, label);
   }
@@ -823,10 +1793,10 @@
     if (!state.leadsLoaded) {
       if (state.leadsError) {
         return h('div', { class: 'notice', 'data-kind': 'error', role: 'alert' }, icon('alert'),
-          h('div', { class: 'notice-body' }, h('strong', null, 'We couldn’t load your leads.'), h('span', null, state.leadsError),
+          h('div', { class: 'notice-body' }, h('strong', null, 'We couldn’t load your enquiries.'), h('span', null, state.leadsError),
             h('div', null, h('button', { type: 'button', class: 'linkish', onclick: function () { state.leadsError = null; renderLeads(); loadLeads(); } }, 'Try again'))));
       }
-      var ghosts = h('div', { class: 'slip lead-list', role: 'status', 'aria-label': 'Loading your leads' });
+      var ghosts = h('div', { class: 'slip lead-list', role: 'status', 'aria-label': 'Loading your enquiries' });
       for (var g = 0; g < 4; g++) ghosts.append(h('div', { class: 'ghost' }, h('i'), h('i'), h('i')));
       return ghosts;
     }
@@ -835,14 +1805,14 @@
 
     if (visible.length === 0) {
       return h('div', { class: 'slip slip-pad stack-tight' },
-        h('p', null, 'No leads are marked ' + STATUS[state.filter].label.toLowerCase() + ' right now.'),
+        h('p', null, 'No enquiries are marked ' + STATUS[state.filter].label.toLowerCase() + ' right now.'),
         h('p', { class: 'fine' }, state.filter === 'new'
           ? 'You’re all caught up. New conversations appear here on their own.'
-          : 'Open a lead and change its status to move it here.'),
-        h('div', null, showAllButton('Show all leads')));
+          : 'Open an enquiry and change its status to move it here.'),
+        h('div', null, showAllButton('Show all enquiries')));
     }
 
-    var list = h('ul', { class: 'slip lead-list', 'aria-label': state.filter === 'all' ? 'All leads, newest first' : STATUS[state.filter].label + ' leads, newest first' });
+    var list = h('ul', { class: 'slip lead-list', 'aria-label': state.filter === 'all' ? 'All enquiries, newest first' : STATUS[state.filter].label + ' enquiries, newest first' });
     visible.forEach(function (lead) {
       var src = SOURCE[lead.source] || { label: 'Got in touch', icon: 'note' };
       list.append(h('li', { class: 'lead-row', 'data-status': lead.status },
@@ -890,7 +1860,7 @@
     if (!id) {
       if (ui.paneMode !== 'rest') {
         ui.paneMode = 'rest'; detail = null;
-        ui.leadPane.replaceChildren(h('p', { class: 'lead-rest' }, 'Choose a lead to read the conversation and reply.'));
+        ui.leadPane.replaceChildren(h('p', { class: 'lead-rest' }, 'Choose an enquiry to read the conversation and reply.'));
       }
       return;
     }
@@ -902,10 +1872,10 @@
         ui.paneMode = mode; detail = null;
         ui.leadPane.replaceChildren(backBar(), state.leadsLoaded
           ? h('div', { class: 'slip lead-missing' },
-              h('h2', { class: 'blank-title', tabindex: '-1', 'data-focus': true }, 'This lead isn’t here any more'),
+              h('h2', { class: 'blank-title', tabindex: '-1', 'data-focus': true }, 'This enquiry isn’t here any more'),
               h('p', { class: 'lede' }, 'It may have been removed, or the link is from another site.'),
-              h('a', { class: 'btn', href: '#/leads' }, 'Back to all leads'))
-          : h('div', { class: 'slip lead-list', role: 'status', 'aria-label': 'Loading this lead' }, h('div', { class: 'ghost' }, h('i'), h('i'), h('i'))));
+              h('a', { class: 'btn', href: '#/leads' }, 'Back to all enquiries'))
+          : h('div', { class: 'slip lead-list', role: 'status', 'aria-label': 'Loading this enquiry' }, h('div', { class: 'ghost' }, h('i'), h('i'), h('i'))));
       }
       return;
     }
@@ -920,7 +1890,7 @@
   }
 
   function backBar() {
-    return h('div', { class: 'back-bar' }, h('a', { class: 'btn btn-quiet', href: '#/leads' }, icon('back'), 'Leads'));
+    return h('div', { class: 'back-bar' }, h('a', { class: 'btn btn-quiet', href: '#/leads' }, icon('back'), 'Enquiries'));
   }
 
   function patch(d, key, value, fn) {
@@ -1044,7 +2014,7 @@
       submit: async function (text) {
         var res = await mutate(function () {
           return api('/leads/' + enc(d.id) + '/message', { method: 'POST', body: { text: text },
-            fallbacks: { 400: 'This lead has no phone number to text.', 502: 'The phone network turned the message down.' } });
+            fallbacks: { 400: 'This enquiry has no phone number to text.', 502: 'The phone network turned the message down.' } });
         });
         applyLead(res.lead, d.id, function (l) { l.messages.push({ at: Date.now(), text: text, status: 'sent', channel: 'sms' }); });
         var now = findLead(d.id);
@@ -1120,7 +2090,7 @@
           h('strong', null, 'They didn’t leave a way to reach them'),
           h('span', null, 'If they come back to your site, the assistant will ask again.'))));
       } else if (!lead.phone) {
-        d.reach.append(h('p', { class: 'fine' }, 'No phone number was left, so calling and texting aren’t available for this lead.'));
+        d.reach.append(h('p', { class: 'fine' }, 'No phone number was left, so calling and texting aren’t available for this enquiry.'));
       }
 
       // Texting and the call-back both need a number.
@@ -1230,6 +2200,7 @@
     recount();
     renderLeads();
     renderLeadPane();
+    renderAttention();
   }
 
   async function setStatus(d, status) {
@@ -1260,7 +2231,7 @@
     var lead = findLead(d.id);
     var hasPhone = !!(lead && telHref(lead.phone));
     if (!hasPhone) {
-      d.callIntro.textContent = 'The assistant can phone a lead for you, but this one left no number.';
+      d.callIntro.textContent = 'The assistant can phone someone back for you, but this person left no number.';
       d.callBtn.setAttribute('aria-disabled', 'true');
       d.callBtn.hidden = false;
       d.confirm.hidden = true;
@@ -1397,8 +2368,12 @@
     var site = state.site;
     var busy = siteIsBusy();
 
-    patch(web, 'stamp', site.status, function () {
+    var live = isLive();
+
+    patch(web, 'stamp', [site.status, live], function () {
       var s = SITE_STATUS[site.status];
+      // A published site with changes waiting is still live for visitors.
+      if (live && site.status === 'ready') s = SITE_STATUS.published;
       web.stampSlot.replaceChildren(s ? stamp(s.tone, s.label, s.icon, true) : '');
     });
 
@@ -1410,13 +2385,12 @@
           h('span', null, state.siteError + ' ', h('button', { type: 'button', class: 'linkish', onclick: function () { loadSite(); } }, 'Try now')))));
     });
 
-    patch(web, 'card', [site.name, site.url, site.status, site.sections], function () {
-      var live = site.status === 'published';
+    patch(web, 'card', [site.name, site.url, site.address, live, site.sections], function () {
       web.card.replaceChildren(
         h('div', { class: 'stack-tight' },
           h('h2', { class: 'blank-title' }, site.name || 'Your website'),
           h('p', { class: 'fine' }, live ? 'Anyone with this address can visit your site.' : 'This will be your address once the site is published.')),
-        addressRow(site.url));
+        addressRow(site.url || site.address));
       if (site.sections.length) {
         var chips = h('ul', { class: 'chips', 'aria-label': 'Sections on your page' });
         site.sections.forEach(function (s) { chips.append(h('li', { class: 'chip' }, s)); });
@@ -1426,7 +2400,7 @@
 
     // Publish is loud only when there is something visitors cannot see yet.
     var prominent = needsPublish(site);
-    patch(web, 'publish', [prominent, site.status, site.url, busy, web.changePending, web.publishing], function () {
+    patch(web, 'publish', [prominent, site.status, live, site.address, busy, web.changePending, web.publishing], function () {
       web.publish.setAttribute('data-prominent', prominent ? 'true' : 'false');
       var blocked = busy || web.changePending;
       if (site.status === 'designing') {
@@ -1435,9 +2409,9 @@
       } else if (site.status === 'failed' && !prominent) {
         web.publishTitle.textContent = 'The last design attempt didn’t work';
         web.publishHint.textContent = 'Describe the change again below and the assistant will have another go.';
-      } else if (prominent && site.status === 'ready') {
+      } else if (prominent && !live) {
         web.publishTitle.textContent = 'Your site isn’t public yet';
-        web.publishHint.textContent = 'Have a look at the preview. When you’re happy, publish it so customers can find you' + (site.url ? ' at ' + prettyUrl(site.url) + '.' : '.');
+        web.publishHint.textContent = 'Have a look at the preview. When you’re happy, publish it so customers can find you' + (site.address ? ' at ' + prettyUrl(site.address) + '.' : '.');
       } else if (prominent) {
         web.publishTitle.textContent = 'You have changes visitors can’t see yet';
         web.publishHint.textContent = 'The preview shows the new version. Publish to put it in front of customers.';
@@ -1448,7 +2422,7 @@
       web.publishHint.hidden = !web.publishHint.textContent;
       if (!web.publishing) {
         web.publishBtn.className = 'btn' + (prominent ? ' btn-primary btn-block' : '');
-        web.publishBtn.textContent = prominent ? (site.status === 'ready' ? 'Publish my site' : 'Publish changes') : 'Publish again';
+        web.publishBtn.textContent = prominent ? (live ? 'Publish changes' : 'Publish my site') : 'Publish again';
         if (blocked) web.publishBtn.setAttribute('aria-disabled', 'true'); else web.publishBtn.removeAttribute('aria-disabled');
       }
     });
