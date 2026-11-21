@@ -1,0 +1,301 @@
+{
+  "note": "Files are generated images; url entries are free-licence photographs from Unsplash, loaded from its image server.",
+  "categories": [
+    {
+      "key": "south-indian-food",
+      "label": "South Indian tiffin, breakfast, mess, dosa and idli",
+      "keywords": [
+        "tiffin",
+        "dosa",
+        "idli",
+        "mess",
+        "breakfast",
+        "filter coffee",
+        "south indian",
+        "pongal",
+        "vada"
+      ],
+      "photos": [
+        {
+          "file": "hero.jpg",
+          "ratio": "3:2",
+          "alt": "A crisp golden dosa on a banana-leaf-lined steel plate with bowls of coconut chutney and sambar and a steel tumbler of filter coffee on a dark wooden table"
+        },
+        {
+          "file": "a.jpg",
+          "ratio": "4:3",
+          "alt": "A South Indian meal on a banana leaf seen from above, with a mound of white rice, sambar, rasam, green beans, pickle and a small steel cup of payasam"
+        },
+        {
+          "url": "https://images.unsplash.com/photo-1741376509187-0b683c764294",
+          "ratio": "4:3",
+          "alt": "Soft idlis on a banana leaf with sambar, chutneys and a cup of coffee"
+        },
+        {
+          "url": "https://images.unsplash.com/photo-1668236543090-82eba5ee5976",
+          "ratio": "4:3",
+          "alt": "A long crisp dosa served with potato masala, sambar and three chutneys"
+        },
+        {
+          "url": "https://images.unsplash.com/photo-1741376509109-e9edd6f24f5f",
+          "ratio": "4:3",
+          "alt": "Idlis surrounded by small bowls of chutney and sambar on a banana leaf"
+        },
+        {
+          "url": "https://images.unsplash.com/photo-1791209135209-5fe1e8295b47",
+          "ratio": "4:3",
+          "alt": "A golden rolled dosa on a steel tray with chutney"
+        },
+        {
+          "url": "https://images.unsplash.com/photo-1694849789325-914b71ab4075",
+          "ratio": "4:3",
+          "alt": "A crisp dosa with coconut chutney and sambar on a banana leaf plate, seen from above"
+        }
+      ]
+    },
+    {
+      "key": "cafe-bakery",
+      "label": "Cafe, bakery, juice and salad bar",
+      "keywords": [
+        "cafe",
+        "coffee",
+        "bakery",
+        "cake",
+        "pastry",
+        "juice",
+        "smoothie",
+        "salad",
+        "sandwich",
+        "tea"
+      ],
+      "photos": [
+        {
+          "file": "a.jpg",
+          "ratio": "4:3",
+          "alt": "A tray of freshly baked croissants and cinnamon rolls on parchment paper on a rustic wooden bakery shelf in warm morning light"
+        },
+        {
+          "url": "https://images.unsplash.com/photo-1544031064-9de80864ade5",
+          "ratio": "3:2",
+          "alt": "A bright cafe interior with wooden tables and chairs"
+        },
+        {
+          "url": "https://images.unsplash.com/photo-1512621776951-a57141f2eefd",
+          "ratio": "4:3",
+          "alt": "A colourful bowl of fresh vegetables, greens and chickpeas"
+        },
+        {
+          "url": "https://images.unsplash.com/photo-1521677633993-721dd3f95c10",
+          "ratio": "4:3",
+          "alt": "Freshly brewed coffee seen from above"
+        },
+        {
+          "url": "https://images.unsplash.com/photo-1538333581680-29dd4752ddf2",
+          "ratio": "4:3",
+          "alt": "A warmly lit cafe with a patterned tile floor and empty tables"
+        },
+        {
+          "url": "https://images.unsplash.com/photo-1565650839149-2c48a094196c",
+          "ratio": "4:3",
+          "alt": "A cosy cafe corner with round wooden tables and a dark sofa"
+        },
+        {
+          "url": "https://images.unsplash.com/photo-1758721217610-a5d729a319e9",
+          "ratio": "4:3",
+          "alt": "A fresh salad with sprouts in a rustic bowl"
+        }
+      ]
+    },
+    {
+      "key": "indian-restaurant",
+      "label": "Indian restaurant, meals, thali, biryani, catering",
+      "keywords": [
+        "restaurant",
+        "thali",
+        "meals",
+        "biryani",
+        "curry",
+        "hotel",
+        "catering",
+        "dhaba",
+        "north indian",
+        "tandoori"
+      ],
+      "photos": [
+        {
+          "url": "https://images.unsplash.com/photo-1680993032090-1ef7ea9b51e5",
+          "ratio": "3:2",
+          "alt": "A steel thali with rice, flatbread and several small bowls of curry"
+        },
+        {
+          "url": "https://images.unsplash.com/photo-1589778655375-3e622a9fc91c",
+          "ratio": "4:3",
+          "alt": "A festive thali with many small dishes on a steel tray"
+        },
+        {
+          "url": "https://images.unsplash.com/photo-1782541370275-6761522e39d1",
+          "ratio": "4:3",
+          "alt": "A plate of chicken biryani being served at the table"
+        },
+        {
+          "url": "https://images.unsplash.com/photo-1631515243349-e0cb75fb8d3a",
+          "ratio": "4:3",
+          "alt": "A bowl of biryani topped with a piece of chicken"
+        },
+        {
+          "url": "https://images.unsplash.com/photo-1789994405563-b372d9a270c2",
+          "ratio": "4:3",
+          "alt": "A tray with curry, dal, roti, raita and onions"
+        },
+        {
+          "url": "https://images.unsplash.com/photo-1546833999-b9f581a1996d",
+          "ratio": "4:3",
+          "alt": "A round steel tray with rotis and several curries"
+        }
+      ]
+    },
+    {
+      "key": "tailoring-boutique",
+      "label": "Tailor, boutique, textiles, embroidery, alterations",
+      "keywords": [
+        "tailor",
+        "tailoring",
+        "boutique",
+        "stitching",
+        "blouse",
+        "saree",
+        "fabric",
+        "textile",
+        "embroidery",
+        "alteration",
+        "dress"
+      ],
+      "photos": [
+        {
+          "url": "https://images.unsplash.com/photo-1760815012005-d1dd61bf6cd2",
+          "ratio": "3:2",
+          "alt": "A sewing machine with fabric under the needle on a work table"
+        },
+        {
+          "url": "https://images.unsplash.com/photo-1705248383815-c6bc07898592",
+          "ratio": "4:3",
+          "alt": "Rolled lengths of fabric in mustard and maroon shades"
+        },
+        {
+          "url": "https://images.unsplash.com/photo-1507434745378-235a6297156b",
+          "ratio": "4:3",
+          "alt": "A stack of brightly coloured patterned textiles"
+        },
+        {
+          "url": "https://images.unsplash.com/photo-1792397471843-a2a4963088ad",
+          "ratio": "4:3",
+          "alt": "Close view of hand embroidery in red, purple and white thread"
+        },
+        {
+          "url": "https://images.unsplash.com/photo-1673786586360-19e8f8acb53f",
+          "ratio": "4:3",
+          "alt": "Close view of a sewing machine needle and thread"
+        },
+        {
+          "url": "https://images.unsplash.com/photo-1776164951384-ef4557c32fd2",
+          "ratio": "4:3",
+          "alt": "Embroidered textile with red and yellow patterns"
+        }
+      ]
+    },
+    {
+      "key": "tutoring-education",
+      "label": "Tuition, coaching, classes, school",
+      "keywords": [
+        "tuition",
+        "tutor",
+        "coaching",
+        "classes",
+        "maths",
+        "teacher",
+        "school",
+        "education",
+        "spoken english",
+        "exam"
+      ],
+      "photos": [
+        {
+          "url": "https://images.unsplash.com/photo-1598981457915-aea220950616",
+          "ratio": "3:2",
+          "alt": "A student writing at a desk in a classroom with a whiteboard behind"
+        },
+        {
+          "url": "https://images.unsplash.com/photo-1497633762265-9d179a990aa6",
+          "ratio": "4:3",
+          "alt": "A stack of books seen from the side"
+        },
+        {
+          "url": "https://images.unsplash.com/photo-1517673132405-a56a62b18caf",
+          "ratio": "4:3",
+          "alt": "A pile of books beside a notebook and pen on a dark desk"
+        },
+        {
+          "url": "https://images.unsplash.com/photo-1495446815901-a7297e633e8d",
+          "ratio": "4:3",
+          "alt": "A row of books standing on a table"
+        },
+        {
+          "url": "https://images.unsplash.com/photo-1701673363427-aa69d41b3b22",
+          "ratio": "4:3",
+          "alt": "A desk with a mug, pencils and a yellow sticky note"
+        }
+      ]
+    },
+    {
+      "key": "salon-beauty",
+      "label": "Salon, beauty parlour, barber, mehndi, skincare",
+      "keywords": [
+        "salon",
+        "parlour",
+        "beauty",
+        "barber",
+        "hair",
+        "haircut",
+        "mehndi",
+        "henna",
+        "bridal",
+        "makeup",
+        "facial",
+        "spa",
+        "skincare"
+      ],
+      "photos": [
+        {
+          "url": "https://images.unsplash.com/photo-1600948836101-f9ffda59d250",
+          "ratio": "3:2",
+          "alt": "Salon chairs facing round mirrors on a dark wall"
+        },
+        {
+          "url": "https://images.unsplash.com/photo-1792523227995-9ac04cf1d94d",
+          "ratio": "4:3",
+          "alt": "Two barber chairs in a modern salon"
+        },
+        {
+          "url": "https://images.unsplash.com/photo-1612817288484-6f916006741a",
+          "ratio": "4:3",
+          "alt": "Skincare bottles and jars laid out with stones and green sprigs"
+        },
+        {
+          "url": "https://images.unsplash.com/photo-1771992228898-79342c9c1c39",
+          "ratio": "4:3",
+          "alt": "Hands decorated with henna beside marigold garlands"
+        },
+        {
+          "url": "https://images.unsplash.com/photo-1748543668676-ea8241cb3886",
+          "ratio": "4:3",
+          "alt": "Skincare creams with green leaves on a light background"
+        },
+        {
+          "url": "https://images.unsplash.com/photo-1792792899240-208d73a64449",
+          "ratio": "4:3",
+          "alt": "Professional hair clippers and trimmers laid out in a row"
+        }
+      ]
+    }
+  ]
+}

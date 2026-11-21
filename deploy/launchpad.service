@@ -1,0 +1,44 @@
+# Installed to /etc/systemd/system/launchpad.service by scripts/deploy.sh.
+[Unit]
+Description=Launchpad (operator console on 3210, public listener on 3211)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=launchpad
+Group=launchpad
+WorkingDirectory=/opt/launchpad
+# Server-only settings. Set in the process environment so they win over the deployed .env
+# (the app's loadEnvFile never overrides a variable that is already set).
+EnvironmentFile=-/opt/launchpad/.env.local
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node server/index.mjs
+Restart=always
+RestartSec=2
+TimeoutStopSec=15
+
+# Hardening. The whole filesystem is read-only to the app except the generated sites.
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/launchpad/sites
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+RestrictNamespaces=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

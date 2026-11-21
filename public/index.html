@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Launchpad console</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Launchpad console</h1>
+      <p id="subtitle" class="muted">Rehearse the calling agent in your browser, phone someone, and watch the sites it builds.</p>
+    </header>
+
+    <section class="stage" aria-live="polite">
+      <div class="orb" id="orb" data-state="idle" aria-hidden="true">
+        <span class="ring"></span>
+        <span class="core"></span>
+      </div>
+      <p class="state" id="state">Ready when you are</p>
+      <p class="hint muted" id="hint">Press start and say hello.</p>
+
+      <div class="controls">
+        <button id="toggle" class="primary" type="button">Start conversation</button>
+        <button id="mute" class="ghost" type="button" hidden aria-pressed="false">Mute mic</button>
+      </div>
+
+      <p class="notice" id="notice" role="alert" hidden></p>
+    </section>
+
+    <section class="meters" id="meters" hidden>
+      <div class="meter"><span>You</span><div class="bar"><i id="level-you"></i></div></div>
+      <div class="meter"><span id="agent-name">Companion</span><div class="bar"><i id="level-agent"></i></div></div>
+    </section>
+
+    <section class="call" aria-labelledby="call-heading">
+      <h2 id="call-heading">Call a phone</h2>
+      <p class="call-intro muted">The server dials a real phone and the voice agent talks to whoever picks up.</p>
+      <form class="call-form" id="call-form" novalidate data-ready="false">
+        <p class="notice" id="call-notice" hidden></p>
+        <div class="fields">
+          <div class="field">
+            <label for="call-to">Phone number</label>
+            <input id="call-to" name="to" type="tel" autocomplete="tel" inputmode="tel" placeholder="+919812345678" aria-describedby="call-to-help" required disabled>
+            <p class="field-error" id="call-to-error" hidden></p>
+            <p class="field-help muted" id="call-to-help">Include the country code, starting with +. Spaces and dashes are fine.</p>
+          </div>
+          <div class="field">
+            <label for="call-name">Who are we calling? <span class="muted">(optional)</span></label>
+            <input id="call-name" name="name" type="text" autocomplete="off" disabled>
+          </div>
+          <div class="field">
+            <label for="call-lang">Language of the conversation</label>
+            <select id="call-lang" name="lang"><option value="en">English</option></select>
+            <p class="field-help muted" id="call-lang-help">Also used when you rehearse with Start conversation above.</p>
+          </div>
+        </div>
+        <div class="call-actions">
+          <button id="call-toggle" class="primary" type="submit" disabled>Call this number</button>
+          <p class="call-status" id="call-status-line">
+            <span id="call-status" role="status" aria-live="polite"></span>
+            <span class="call-timer" id="call-timer" role="timer" aria-label="Time since dialing"></span>
+          </p>
+        </div>
+        <p class="call-meta muted" id="call-meta" hidden></p>
+      </form>
+    </section>
+
+    <section class="sites" aria-labelledby="sites-heading">
+      <h2 id="sites-heading">Websites built on calls</h2>
+      <p class="muted sites-note" id="sites-note"></p>
+      <ul id="sites"></ul>
+      <p class="muted empty" id="sites-empty">None yet. One appears here the moment the agent starts a preview.</p>
+    </section>
+
+    <section class="sites" aria-labelledby="calls-heading">
+      <h2 id="calls-heading">Recent calls</h2>
+      <p class="muted sites-note" id="calls-note">Whether a call was answered, why it ended and what was said appear here once Agora notifications are switched on.</p>
+      <ul id="calls-list"></ul>
+    </section>
+
+    <section class="sites" aria-labelledby="wa-heading">
+      <h2 id="wa-heading">WhatsApp templates</h2>
+      <p class="muted sites-note">A message goes by WhatsApp once Meta has approved its template, and as a text message until then.</p>
+      <ul id="wa-list"></ul>
+    </section>
+
+    <section class="transcript">
+      <h2>Conversation</h2>
+      <ol id="lines"></ol>
+      <p class="muted empty" id="empty">What you and the companion say will appear here.</p>
+    </section>
+
+    <footer class="muted" id="footer"></footer>
+  </main>
+
+  <script src="/vendor/agora-rtc.js"></script>
+  <script src="/vendor/agora-rtm.js"></script>
+  <script src="/app.js"></script>
+  <script src="/call.js"></script>
+  <script src="/sites.js"></script>
+</body>
+</html>

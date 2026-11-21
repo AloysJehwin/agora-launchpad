@@ -1,0 +1,20 @@
+node_modules/
+.DS_Store
+
+# Secrets and machine-specific state: never commit
+.env
+.env.local
+.deploy/
+DEPLOYED.md
+
+# Generated at run time
+out/
+sites/
+*.wav
+
+# Editor and assistant settings
+.claude/
+
+# Thunai, the panchayat health companion, is a separate project with its own repository.
+# When its folder is present here, the server mounts it under /care (see server/care-mount.mjs).
+care/

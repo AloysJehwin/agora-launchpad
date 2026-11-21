@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="referrer" content="same-origin">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#f4efe6" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#14171c" media="(prefers-color-scheme: dark)">
+  <title>Your leads</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600&family=Fraunces:opsz,wght@9..144,500;9..144,600&display=swap">
+  <link rel="stylesheet" href="/_lp/admin.css">
+  <script src="/_lp/admin.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <!-- Shown until the first answer from the server arrives. -->
+  <div id="boot" class="boot" role="status">
+    <span class="spinner" aria-hidden="true"></span>
+    <span>Opening your panel…</span>
+  </div>
+
+  <!-- Sign-in gate. Filled by admin.js when the server answers 401. -->
+  <main id="gate" class="gate" hidden></main>
+
+  <div id="app" class="app" hidden>
+    <header class="brand">
+      <p class="brand-eyebrow">Launchpad</p>
+      <p class="brand-name" id="brand-name"></p>
+    </header>
+
+    <nav class="nav" aria-label="Sections">
+      <a class="nav-link" href="#/leads" data-view="leads">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 13.5 6.5 5h11L20 13.5V19H4z"/><path d="M4 13.5h4.5a3.5 3.5 0 0 0 7 0H20"/></svg>
+        <span class="nav-label">Leads</span>
+        <span class="nav-badge" id="nav-badge" hidden></span>
+      </a>
+      <a class="nav-link" href="#/website" data-view="website">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3.5 5.5h17v13h-17z"/><path d="M3.5 9.5h17"/><path d="M6.5 7.5h.01M9 7.5h.01"/></svg>
+        <span class="nav-label">Website</span>
+        <span class="nav-badge nav-badge-dot" id="nav-site-badge" hidden></span>
+      </a>
+      <a class="nav-link" href="#/account" data-view="account">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="8.5" r="3.5"/><path d="M5 19.5a7 7 0 0 1 14 0"/></svg>
+        <span class="nav-label">Account</span>
+      </a>
+    </nav>
+
+    <p class="who" id="who"></p>
+
+    <main id="main" class="main" tabindex="-1">
+      <section id="view-leads" class="view view-leads" aria-labelledby="leads-title" hidden></section>
+      <section id="view-website" class="view view-website" aria-labelledby="website-title" hidden></section>
+      <section id="view-account" class="view view-account" aria-labelledby="account-title" hidden></section>
+    </main>
+  </div>
+
+  <div id="live-polite" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+  <div id="live-assertive" class="sr-only" aria-live="assertive" aria-atomic="true"></div>
+
+  <noscript>
+    <div class="gate">
+      <div class="gate-card">
+        <h1 class="gate-title">This page needs JavaScript</h1>
+        <p>Turn on JavaScript in your browser, then reload this page to see your leads.</p>
+      </div>
+    </div>
+  </noscript>
+</body>
+</html>

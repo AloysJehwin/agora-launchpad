@@ -1,0 +1,44 @@
+# Installed to /etc/caddy/Caddyfile by scripts/deploy.sh (Caddy reloads only when this changes).
+#
+# 127.0.0.1:3210  operator console (can place real phone calls: always behind basic auth)
+# 127.0.0.1:3211  public listener (voice-service tool endpoints, SSE previews, published sites)
+
+{
+	# Wildcard hosts get a certificate on first request, but only for hostnames the app approves:
+	# GET /internal/tls-ask?domain=<host> must answer 200.
+	on_demand_tls {
+		ask http://127.0.0.1:3211/internal/tls-ask
+	}
+}
+
+launchpad.aloysjehwin.com {
+	reverse_proxy 127.0.0.1:3211 {
+		flush_interval -1
+	}
+}
+
+# Every subdomain gets its own certificate on first request (on-demand), approved by the app.
+# The console is routed inside this block rather than in a site block of its own: with a wildcard
+# site present, Caddy 2.10+ expects a wildcard certificate to cover named subdomains and never
+# requests one for them individually.
+*.launchpad.aloysjehwin.com {
+	tls {
+		on_demand
+	}
+
+	# Operator console (can place real phone calls): always behind basic auth.
+	@console host console.launchpad.aloysjehwin.com
+	handle @console {
+		# Server-only file holding `basic_auth { operator <bcrypt hash> }`.
+		# Written by deploy/set-console-password.sh; the hash is never in the repo.
+		import /etc/caddy/console-auth.caddy
+		reverse_proxy 127.0.0.1:3210
+	}
+
+	# Everything else: one site per hostname (previews use server-sent events, so no buffering).
+	handle {
+		reverse_proxy 127.0.0.1:3211 {
+			flush_interval -1
+		}
+	}
+}

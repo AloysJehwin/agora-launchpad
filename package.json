@@ -1,0 +1,23 @@
+{
+  "name": "agora-voice-companion",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Voice-first agentic companion on Agora Conversational AI with Murf Falcon TTS",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node server/index.mjs",
+    "dev": "node --watch server/index.mjs",
+    "check": "node scripts/check-providers.mjs",
+    "check:e2e": "node scripts/check-providers.mjs --e2e",
+    "phone:setup": "node scripts/setup-phone.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.12.0",
+    "agora-rtc-sdk-ng": "^4.24.10",
+    "agora-rtm": "^2.3.0",
+    "agora-token": "^2.0.5"
+  }
+}
