@@ -130,16 +130,27 @@ export const voiceLlmBlock = () => {
 
 /**
  * Turn-taking. Barge-in is on: when the person speaks, the agent stops talking and listens.
- *  - speaking_interrupt_duration_ms: how long they must speak before the agent yields. The
- *    platform default is 160 ms; on a phone line a cough or line noise is that long, so we
- *    ask for a little more. Lower it if the agent feels slow to yield, raise it if it gets
- *    cut off by background noise.
+ *  - start_of_speech: "vad", detection on the sound of a voice itself. The default, "semantic",
+ *    waits until it recognises a meaningful start of speech; on real phone calls the agent kept
+ *    talking over the caller, because a narrow-band line, an accent or a half-word gives the
+ *    recogniser nothing to go on until too late. Voice activity needs no words, so the agent
+ *    yields as soon as it hears someone.
+ *  - speaking_interrupt_duration_ms: how long they must speak before the agent yields. Short
+ *    enough to feel immediate, long enough that a cough or a click on the line does not cut it off.
+ *  - interrupt_duration_ms: sounds shorter than this are not speech at all.
+ *  - speech_threshold: how sure the detector must be that it hears a voice. Lower hears quiet
+ *    speakers sooner but also reacts to room noise.
  *  - end_of_speech: semantic, so a mid-sentence pause ("my shop is called... um") is not
  *    taken as the end of the turn.
+ * INTERRUPT_MODE / INTERRUPT_MS / SPEECH_THRESHOLD in .env tune this for a noisy room without a code change.
  */
+const tune = (name, fallback, min, max) => { const n = Number(process.env[name]); return Number.isFinite(n) && n >= min && n <= max && process.env[name] !== '' && process.env[name] != null ? n : fallback; };
+const startOfSpeech = process.env.INTERRUPT_MODE === 'semantic'
+  ? { type: 'semantic', speaking_interrupt_duration_ms: tune('INTERRUPT_MS', 160, 120, 1200) }
+  : { type: 'vad', speaking_interrupt_duration_ms: tune('INTERRUPT_MS', 200, 120, 1200), interrupt_duration_ms: 160, prefix_padding_ms: 800 };
 export const turnDetection = {
-  speech_threshold: 0.5,
-  start_of_speech: { type: 'semantic', speaking_interrupt_duration_ms: 200 },
+  speech_threshold: tune('SPEECH_THRESHOLD', 0.5, 0.1, 0.9),
+  start_of_speech: startOfSpeech,
   end_of_speech: { type: 'semantic', silence_duration_ms: 480, max_wait_ms: 3000, pause_state_enabled: true },
   interruption: { mode: 'start_of_speech' },
 };
