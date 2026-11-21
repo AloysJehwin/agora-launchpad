@@ -1,4 +1,5 @@
-// "Call a phone" panel: asks the server to dial a number, then follows the call by polling.
+// Call launcher: asks the server to dial a number, then follows the call by polling and hands
+// every change to the live stage (stage.js) to draw.
 // Self-contained on purpose. app.js is also a classic script, so everything here stays inside
 // one function scope to keep its top-level names (`$`, `el`, `post`, ...) from colliding.
 (() => {
@@ -6,7 +7,7 @@
 
   const $ = (id) => document.getElementById(id);
   const el = {
-    form: $('call-form'), to: $('call-to'), name: $('call-name'), toError: $('call-to-error'),
+    form: $('call-form'), to: $('call-to'), name: $('call-name'), toError: $('call-to-error'), toHelp: $('call-to-help'),
     toggle: $('call-toggle'), statusLine: $('call-status-line'), status: $('call-status'),
     timer: $('call-timer'), notice: $('call-notice'), meta: $('call-meta'),
   };
@@ -16,11 +17,14 @@
   const POLL_MS = 2000;
   const POLL_TIMEOUT_MS = 8000;
   const MAX_POLL_FAILURES = 3;
+  const HOLD_MS = 1500; // after the button changes meaning, clicks are ignored this long
   const ENDED = new Set(['STOPPED', 'IDLE']);
+  const ACTIVE = new Set(['STARTING', 'RUNNING']);
   const LAST_KEY = 'voice.call.last'; // localStorage: the last number and name typed
   const LIVE_KEY = 'voice.call.live'; // sessionStorage: the live call, so a reload keeps the End call button
   const LOST = `Lost contact with the server after ${MAX_POLL_FAILURES} tries, so this page stopped checking. `
     + 'The call may still be going. Try End call, or it ends on its own at the server\'s time limit.';
+  const HELP = el.toHelp ? el.toHelp.textContent : '';
 
   const call = {
     ready: false,   // phone.ready from /api/health
@@ -30,14 +34,20 @@
     to: null,       // masked destination
     t0: 0,          // this browser's clock when the call was placed
     status: '',     // last status the server reported; empty until the first report
+    phone: null,    // what the phone network reported, when the server has it
+    site: null,     // the website this call is building, once there is one
+    adopted: false, // the call was placed elsewhere and picked up from the recent calls list
+    fresh: false,   // this page placed the call and has watched it from the first second
     ending: false,  // the user asked to hang up and the server accepted
     stopError: '',  // why the last hang-up attempt did not work
     lost: false,    // polling gave up after repeated failures
     failures: 0,    // consecutive failed polls
     run: 0,         // bumped to retire an older polling chain
+    holdUntil: 0,   // the button just changed between Call and End call: ignore clicks until then
     pollTimer: 0,
     tick: 0,
   };
+  const dismissed = new Set(); // calls that are over as far as this page is concerned: never pick them up again
 
   // ------------------------------------------------------------ helpers ----
 
@@ -78,10 +88,14 @@
   const explain = (err) => (typeof err.status === 'number' ? err.message : 'Cannot reach the server. Is it running?');
   const sentence = (text) => (/[.!?…]$/.test(text) ? text : `${text}.`);
 
-  const normalise = (value) => value.replace(/[\s\-()]/g, '');
+  // Spaces, dashes, dots and brackets are fine. A bare ten-digit number is Indian, so it gets +91.
+  const normalise = (value) => {
+    const to = value.replace(/[\s\-().]/g, '');
+    return /^[0-9]{10}$/.test(to) ? `+91${to}` : to;
+  };
   const check = (to) => {
     if (!to) return 'Enter the phone number to call.';
-    if (!to.startsWith('+')) return 'Start with + and the country code, for example +919812345678.';
+    if (!to.startsWith('+')) return 'Enter ten digits for an Indian number, or start with + and the country code, for example +14155550123.';
     if (!E164.test(to)) return 'That is not a full international number. After the +, use 7 to 15 digits with no leading zero.';
     return null;
   };
@@ -112,10 +126,19 @@
     }
   };
 
+  // Ten digits are rewritten before dialing, so say what will actually be dialed.
+  const paintHelp = () => {
+    if (!el.toHelp) return;
+    const raw = el.to.value.replace(/[\s\-().]/g, '');
+    const text = /^[0-9]{10}$/.test(raw) ? `Ten digits, so this dials India: +91 ${raw.slice(0, 5)} ${raw.slice(5)}.` : HELP;
+    if (el.toHelp.textContent !== text) el.toHelp.textContent = text;
+  };
+
   const paintControls = () => {
     const live = call.id !== null;
     el.form.dataset.ready = String(call.ready);
-    el.toggle.textContent = live ? 'End call' : 'Call this number';
+    el.form.dataset.live = String(live);
+    el.toggle.textContent = live ? 'End call' : 'Call';
     el.toggle.dataset.active = String(live);
     el.toggle.disabled = !call.ready || call.busy;
     // Locked during a call: the number cannot change, and Enter in a field must not hang up.
@@ -130,33 +153,57 @@
     paint();
     call.tick = setInterval(paint, 1000);
   };
+  // Stopping leaves the last reading on the stage: it is how long the call had been going.
   const stopTimer = () => {
     clearInterval(call.tick);
     call.tick = 0;
-    el.timer.textContent = '';
+  };
+
+  // Hands the stage everything the API has said about this call. The stage only draws it.
+  const show = (extra) => {
+    window.LaunchpadStage?.call({
+      id: call.id, phase: 'live', status: call.status, ending: call.ending, lost: call.lost,
+      to: call.to, from: call.from, t0: call.t0, phone: call.phone, site: call.site, fresh: call.fresh,
+      text: call.lost ? LOST : '', ...extra,
+    });
   };
 
   const dialing = () => `Dialing ${call.to ?? 'the number'}${call.from ? ` from ${call.from}` : ''}…`;
 
   // RUNNING only means the session is live. The API cannot say whether anyone picked up, so the copy does not either.
   const paintLive = () => {
-    if (call.status === 'RUNNING' && !call.ending && !call.lost) startTimer();
+    if (!call.ending && !call.lost) startTimer();
     else stopTimer();
+    show();
     if (call.lost) return say(LOST, 'error');
     if (call.ending || call.status === 'STOPPING') return say('Ending the call…');
     let text = 'Waiting for the call status…';
-    if (call.status === 'RUNNING') text = 'Ringing or in the call';
-    else if (call.status === 'STARTING') text = dialing();
+    if (call.status === 'RUNNING') {
+      text = call.adopted
+        ? 'Following a call placed from the public page or another window. Press End call to hang it up.'
+        : 'Call in progress. Press End call to hang up.';
+    } else if (call.status === 'STARTING') text = dialing();
     return say(call.stopError ? `${call.stopError} ${text}` : text, call.stopError ? 'error' : '');
   };
 
   // ------------------------------------------------------- call lifecycle ----
 
-  const finish = (text, tone) => {
+  // `outcome` is what the stage keeps showing: { phase: 'ended' | 'failed', text, ms }, or null to clear it.
+  const finish = (text, tone, outcome) => {
     call.run += 1;
     clearTimeout(call.pollTimer);
     stopTimer();
-    Object.assign(call, { id: null, to: null, status: '', ending: false, stopError: '', lost: false, failures: 0 });
+    if (call.id !== null) dismissed.add(call.id);
+    if (outcome) {
+      if (Number.isFinite(outcome.ms) && outcome.ms > 0) el.timer.textContent = clock(outcome.ms);
+      show({ phase: outcome.phase, text: outcome.text, ending: false, lost: false });
+    } else {
+      window.LaunchpadStage?.call(null);
+    }
+    Object.assign(call, {
+      id: null, to: null, status: '', phone: null, site: null, adopted: false, fresh: false,
+      ending: false, stopError: '', lost: false, failures: 0, holdUntil: Date.now() + HOLD_MS,
+    });
     remember('sessionStorage', LIVE_KEY, null);
     say(text, tone);
     paintControls();
@@ -165,10 +212,17 @@
   const apply = (data) => {
     const status = typeof data.status === 'string' ? data.status.toUpperCase() : '';
     if (typeof data.to === 'string' && data.to) call.to = data.to;
-    if (status === 'FAILED') return finish(data.message ? `Call failed: ${data.message}` : 'Call failed.', 'error');
+    call.phone = data.phone && typeof data.phone === 'object' ? data.phone : null;
+    if (data.site && typeof data.site === 'object') call.site = data.site;
+    const message = typeof data.message === 'string' ? data.message.trim() : '';
+    const span = Number(data.endedAt) - Number(data.startedAt); // both from the server's clock
+    if (status === 'FAILED') {
+      return finish(message ? `Call failed: ${message}` : 'Call failed.', 'error', { phase: 'failed', text: message, ms: span });
+    }
     if (ENDED.has(status)) {
-      const span = Number(data.endedAt) - Number(data.startedAt); // both from the server's clock
-      return finish(span > 0 ? `Call ended after ${clock(span)}` : 'Call ended');
+      // The server says how it ended ("Nobody answered.", "The call ended after 5 min 46 s."); fall back to the clock.
+      const text = message || (span > 0 ? `Call ended after ${clock(span)}` : 'Call ended');
+      return finish(text, '', { phase: 'ended', text, ms: span });
     }
     call.status = status;
     return paintLive();
@@ -186,8 +240,10 @@
     if (failure) {
       if (failure.status === 404) {
         // No status yet means this id came from a reload and the server has since forgotten it: drop it quietly.
-        if (call.status) finish('The server no longer has a record of this call.', 'error');
-        else finish('');
+        if (call.status) {
+          const text = 'The server no longer has a record of this call.';
+          finish(text, 'error', { phase: 'ended', text });
+        } else finish('');
         return;
       }
       call.failures += 1;
@@ -214,7 +270,7 @@
   // Both return the element that should take focus afterwards, or null.
   const dial = async (to) => {
     const name = el.name.value.trim();
-    remember('localStorage', LAST_KEY, { to, name });
+    remember('localStorage', LAST_KEY, { to: el.to.value.trim(), name });
     call.to = mask(to);
     say(dialing());
     try {
@@ -225,7 +281,8 @@
       const status = typeof data.status === 'string' ? data.status.toUpperCase() : '';
       Object.assign(call, {
         id: String(data.callId), t0: Date.now(), status: status === 'RUNNING' ? 'RUNNING' : 'STARTING',
-        ending: false, stopError: '', lost: false, failures: 0,
+        phone: null, site: null, adopted: false, fresh: true,
+        ending: false, stopError: '', lost: false, failures: 0, holdUntil: Date.now() + HOLD_MS,
       });
       remember('sessionStorage', LIVE_KEY, { id: call.id, t0: call.t0, to: call.to });
       paintLive();
@@ -263,7 +320,8 @@
       if (call.id !== id) return null;
       call.ending = false;
       if (call.lost) {
-        finish('Could not reach the server to end the call. It ends on its own at the server\'s time limit.', 'error');
+        const text = 'Could not reach the server to end the call. It ends on its own at the server\'s time limit.';
+        finish(text, 'error', { phase: 'ended', text });
       } else {
         call.stopError = `Could not end the call: ${sentence(explain(err))}`;
         paintLive();
@@ -274,20 +332,30 @@
 
   // --------------------------------------------------------------- events ----
 
-  el.form.addEventListener('submit', async (event) => {
-    event.preventDefault();
+  // Returns the number to dial, or null after showing why it cannot be dialed.
+  const validated = () => {
+    const to = normalise(el.to.value);
+    const problem = check(to);
+    if (problem) {
+      fieldError(problem);
+      el.to.focus();
+      return null;
+    }
+    fieldError(null);
+    return to;
+  };
+
+  // A call costs money and rings a real person, so only a deliberate press of the button places one:
+  // a single click (or Enter or Space on the button), never the second click of a double click, and
+  // never within a moment of the button having changed between Call and End call.
+  el.toggle.addEventListener('click', async (event) => {
     if (!call.ready || call.busy) return;
+    if (event.detail > 1 || Date.now() < call.holdUntil) return;
 
     let to = null;
     if (call.id === null) {
-      to = normalise(el.to.value);
-      const problem = check(to);
-      if (problem) {
-        fieldError(problem);
-        el.to.focus();
-        return;
-      }
-      fieldError(null);
+      to = validated();
+      if (!to) return;
     }
 
     // Disabling the controls during the request drops keyboard focus; hand it back afterwards.
@@ -307,8 +375,22 @@
     }
   });
 
+  // Enter in a field never dials. It checks the number and moves to the Call button, which is one more press.
+  const toButton = (event) => {
+    event.preventDefault();
+    if (!call.ready || call.busy || call.id !== null) return;
+    if (validated()) el.toggle.focus();
+  };
+  el.form.addEventListener('submit', toButton);
+  for (const field of [el.to, el.name]) {
+    field.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' && !event.isComposing) toButton(event);
+    });
+  }
+
   el.to.addEventListener('input', () => {
     if (el.to.getAttribute('aria-invalid') === 'true') fieldError(null);
+    paintHelp();
   });
 
   // No pagehide handler on purpose: a phone call should survive the tab closing.
@@ -334,12 +416,33 @@
     startPolling(0);
   };
 
+  // The server runs one call at a time. If one is live that this page did not place (the public
+  // front page, another window), follow it here: the stage shows it and End call can hang it up.
+  // sites.js passes the recent calls list in on every refresh.
+  const follow = (calls) => {
+    if (!call.ready || call.busy || call.id !== null || !Array.isArray(calls)) return;
+    const live = calls.find((c) => c && typeof c.callId === 'string' && c.callId && !dismissed.has(c.callId)
+      && ACTIVE.has(typeof c.status === 'string' ? c.status.toUpperCase() : ''));
+    if (!live) return;
+    Object.assign(call, {
+      id: live.callId, t0: Number(live.startedAt) || Date.now(), to: typeof live.to === 'string' ? live.to : null,
+      status: '', phone: null, site: null, adopted: true,
+      ending: false, stopError: '', lost: false, failures: 0, holdUntil: Date.now() + HOLD_MS,
+    });
+    fieldError(null);
+    paintControls();
+    apply(live);
+    if (call.id !== null) startPolling(POLL_MS);
+  };
+  window.LaunchpadCall = { follow };
+
   const init = async () => {
     const last = recall('localStorage', LAST_KEY);
     if (last && typeof last === 'object') {
       if (typeof last.to === 'string') el.to.value = last.to;
       if (typeof last.name === 'string') el.name.value = last.name;
     }
+    paintHelp();
 
     let res;
     try {
@@ -360,9 +463,10 @@
 
     if (!phone.ready) {
       const missing = Array.isArray(phone.missing) ? phone.missing.filter(Boolean) : [];
+      const hint = typeof phone.hint === 'string' && phone.hint ? ` ${phone.hint}` : '';
       return block(missing.length
-        ? `Phone calling is not set up yet. Missing in .env: ${missing.join(', ')}.`
-        : 'Phone calling is not set up yet.');
+        ? `Phone calling is not set up yet. Missing in .env: ${missing.join(', ')}.${hint}`
+        : `Phone calling is not set up yet.${hint}`);
     }
 
     call.ready = true;

@@ -3,101 +3,214 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
   <title>Launchpad console</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
+  <a class="skip" href="#call-to">Skip to the call launcher</a>
+
+  <header class="topbar">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false">
+        <path d="M12 2.5 17 13H7z" fill="currentColor"/>
+        <path d="M3 21.5h18M7 17.5h10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square"/>
+      </svg>
+      <h1>Launchpad <span class="brand-sub">operator console</span></h1>
+    </div>
+    <ul class="pips" id="pips" aria-label="System status">
+      <li data-tone="wait"><span class="pip-k">Server</span> <span class="pip-v">checking</span></li>
+    </ul>
+    <a class="hop" href="/care/">Thunai<span class="hop-sub">, the health companion</span> <span aria-hidden="true">↗</span></a>
+  </header>
+
   <main>
-    <header>
-      <h1>Launchpad console</h1>
-      <p id="subtitle" class="muted">Rehearse the calling agent in your browser, phone someone, and watch the sites it builds.</p>
-    </header>
-
-    <section class="stage" aria-live="polite">
-      <div class="orb" id="orb" data-state="idle" aria-hidden="true">
-        <span class="ring"></span>
-        <span class="core"></span>
-      </div>
-      <p class="state" id="state">Ready when you are</p>
-      <p class="hint muted" id="hint">Press start and say hello.</p>
-
-      <div class="controls">
-        <button id="toggle" class="primary" type="button">Start conversation</button>
-        <button id="mute" class="ghost" type="button" hidden aria-pressed="false">Mute mic</button>
-      </div>
-
-      <p class="notice" id="notice" role="alert" hidden></p>
-    </section>
-
-    <section class="meters" id="meters" hidden>
-      <div class="meter"><span>You</span><div class="bar"><i id="level-you"></i></div></div>
-      <div class="meter"><span id="agent-name">Companion</span><div class="bar"><i id="level-agent"></i></div></div>
-    </section>
-
-    <section class="call" aria-labelledby="call-heading">
-      <h2 id="call-heading">Call a phone</h2>
-      <p class="call-intro muted">The server dials a real phone and the voice agent talks to whoever picks up.</p>
-      <form class="call-form" id="call-form" novalidate data-ready="false">
+    <div class="deck">
+    <div class="deck-main">
+    <!-- 1. Call launcher. Behaviour: call.js -->
+    <section class="launcher" aria-labelledby="launcher-heading">
+      <form class="dial" id="call-form" novalidate data-ready="false">
+        <div class="dial-head">
+          <h2 id="launcher-heading">Call a phone</h2>
+          <p class="dial-sub">A real phone rings. Calls and messages cost money.</p>
+        </div>
         <p class="notice" id="call-notice" hidden></p>
-        <div class="fields">
-          <div class="field">
+        <div class="dial-fields">
+          <div class="field field-to">
             <label for="call-to">Phone number</label>
-            <input id="call-to" name="to" type="tel" autocomplete="tel" inputmode="tel" placeholder="+919812345678" aria-describedby="call-to-help" required disabled>
+            <input id="call-to" name="to" type="tel" autocomplete="off" inputmode="tel" placeholder="98765 43210" aria-describedby="call-to-help" required disabled>
             <p class="field-error" id="call-to-error" hidden></p>
-            <p class="field-help muted" id="call-to-help">Include the country code, starting with +. Spaces and dashes are fine.</p>
+            <p class="field-help" id="call-to-help">Ten digits are dialled as India (+91). For any other country start with + and the country code.</p>
           </div>
           <div class="field">
-            <label for="call-name">Who are we calling? <span class="muted">(optional)</span></label>
+            <label for="call-name">Name <span class="optional">(optional)</span></label>
             <input id="call-name" name="name" type="text" autocomplete="off" disabled>
           </div>
           <div class="field">
-            <label for="call-lang">Language of the conversation</label>
-            <select id="call-lang" name="lang"><option value="en">English</option></select>
-            <p class="field-help muted" id="call-lang-help">Also used when you rehearse with Start conversation above.</p>
+            <label for="call-lang">Language</label>
+            <select id="call-lang" name="lang" aria-describedby="call-lang-help"><option value="en">English</option></select>
+            <p class="field-help" id="call-lang-help">Also used for a rehearsal.</p>
           </div>
+          <button id="call-toggle" class="go" type="button" disabled>Call</button>
         </div>
-        <div class="call-actions">
-          <button id="call-toggle" class="primary" type="submit" disabled>Call this number</button>
-          <p class="call-status" id="call-status-line">
-            <span id="call-status" role="status" aria-live="polite"></span>
-            <span class="call-timer" id="call-timer" role="timer" aria-label="Time since dialing"></span>
-          </p>
-        </div>
-        <p class="call-meta muted" id="call-meta" hidden></p>
+        <p class="dial-status" id="call-status-line"><span id="call-status" role="status" aria-live="polite"></span></p>
       </form>
     </section>
 
-    <section class="sites" aria-labelledby="sites-heading">
-      <h2 id="sites-heading">Websites built on calls</h2>
-      <p class="muted sites-note" id="sites-note"></p>
-      <ul id="sites"></ul>
-      <p class="muted empty" id="sites-empty">None yet. One appears here the moment the agent starts a preview.</p>
-    </section>
+    <!-- 2. Live call stage and, beside both, the website preview. Behaviour: stage.js, fed by call.js and sites.js -->
+      <section class="stage" id="stage" data-phase="idle" aria-labelledby="stage-heading">
+        <h2 id="stage-heading" class="visually-hidden">Live call</h2>
+        <p class="visually-hidden" id="stage-live" role="status" aria-live="polite"></p>
 
-    <section class="sites" aria-labelledby="calls-heading">
-      <h2 id="calls-heading">Recent calls</h2>
-      <p class="muted sites-note" id="calls-note">Whether a call was answered, why it ended and what was said appear here once Agora notifications are switched on.</p>
-      <ul id="calls-list"></ul>
-    </section>
+        <div class="board">
+        <div class="now">
+          <div class="now-top">
+            <p class="eyebrow"><span class="beacon" aria-hidden="true"></span><span id="stage-tag">No call on the line</span><span id="stage-who"></span></p>
+            <p class="clock" id="stage-clock" hidden><span class="clock-t" aria-hidden="true">T+</span><span id="call-timer" role="timer" aria-label="Time since dialing"></span></p>
+          </div>
+          <p class="outcome" id="stage-outcome" hidden></p>
+          <p class="headline" id="stage-headline">Standing by</p>
+          <p class="detail" id="stage-detail-line" data-strong="false"><span class="kicker" id="stage-kicker" hidden></span><span id="stage-detail">Press Call and this board follows the call live: the dial, the preview link, the page filling in, the design, each spoken change, and the published address.</span></p>
+          <a class="address" id="stage-address" target="_blank" rel="noopener" hidden></a>
+          <dl class="facts" id="stage-facts" hidden>
+            <div class="fact fact-name"><dt>Business</dt><dd id="fact-name"></dd></div>
+            <div class="fact" id="fact-version-row"><dt>Version</dt><dd id="fact-version"></dd></div>
+            <div class="fact" id="fact-by-row" hidden><dt>Designed by</dt><dd id="fact-by"></dd></div>
+            <div class="fact fact-sections" id="fact-sections-row" hidden><dt>Sections</dt><dd><ul id="fact-sections"></ul></dd></div>
+          </dl>
+        </div>
 
-    <section class="sites" aria-labelledby="wa-heading">
-      <h2 id="wa-heading">WhatsApp templates</h2>
-      <p class="muted sites-note">A message goes by WhatsApp once Meta has approved its template, and as a text message until then.</p>
-      <ul id="wa-list"></ul>
-    </section>
+        <ol class="sequence" id="sequence" aria-label="Stages of the call">
+          <li data-step="call" data-state="pending"><span class="seq-n" aria-hidden="true">01</span><span class="seq-body"><span class="seq-label">Call</span><span class="seq-note"></span></span><span class="seq-at"></span></li>
+          <li data-step="link" data-state="pending"><span class="seq-n" aria-hidden="true">02</span><span class="seq-body"><span class="seq-label">Preview link sent</span><span class="seq-note"></span></span><span class="seq-at"></span></li>
+          <li data-step="collecting" data-state="pending"><span class="seq-n" aria-hidden="true">03</span><span class="seq-body"><span class="seq-label">Getting to know the business</span><span class="seq-note"></span></span><span class="seq-at"></span></li>
+          <li data-step="designing" data-state="pending"><span class="seq-n" aria-hidden="true">04</span><span class="seq-body"><span class="seq-label">Designing</span><span class="seq-note"></span></span><span class="seq-at"></span></li>
+          <li data-step="ready" data-state="pending"><span class="seq-n" aria-hidden="true">05</span><span class="seq-body"><span class="seq-label">Ready for changes</span><span class="seq-note"></span></span><span class="seq-at"></span></li>
+          <li data-step="revising" data-state="pending"><span class="seq-n" aria-hidden="true">06</span><span class="seq-body"><span class="seq-label">Applying a change</span><span class="seq-note"></span></span><span class="seq-at"></span></li>
+          <li data-step="published" data-state="pending"><span class="seq-n" aria-hidden="true">07</span><span class="seq-body"><span class="seq-label">Published</span><span class="seq-note"></span></span><span class="seq-at"></span></li>
+        </ol>
+        </div>
+      </section>
+    </div>
 
-    <section class="transcript">
-      <h2>Conversation</h2>
-      <ol id="lines"></ol>
-      <p class="muted empty" id="empty">What you and the companion say will appear here.</p>
-    </section>
+      <aside class="payload" aria-labelledby="payload-heading">
+        <h2 id="payload-heading" class="visually-hidden">Website preview</h2>
+        <div class="phone" id="phone" data-on="false">
+          <div class="phone-glass">
+          <div class="phone-notch" aria-hidden="true"></div>
+          <div class="phone-screen" id="phone-screen">
+            <div class="phone-idle" id="phone-idle">
+              <span class="phone-idle-lines" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+              <p id="phone-idle-text">The website appears here while the call is in progress.</p>
+            </div>
+            <iframe id="phone-frame" title="Live preview of the website" hidden referrerpolicy="no-referrer" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
+          </div>
+          </div>
+        </div>
+        <p class="payload-cap">
+          <span id="phone-cap">No preview yet</span>
+          <a id="phone-open" target="_blank" rel="noopener" hidden>Open in a new tab <span aria-hidden="true">↗</span></a>
+        </p>
+      </aside>
+    </div>
 
-    <footer class="muted" id="footer"></footer>
+    <!-- 3. Everything built and placed so far. Behaviour: sites.js -->
+    <div class="ledger">
+      <section class="panel" aria-labelledby="sites-heading">
+        <div class="panel-head">
+          <h2 id="sites-heading">Sites built</h2>
+          <p class="panel-note" id="sites-note"></p>
+        </div>
+        <ul class="rows" id="sites"></ul>
+        <p class="empty" id="sites-empty">None yet. A site appears here the moment the agent starts a preview, on a call or in a rehearsal.</p>
+      </section>
+
+      <section class="panel" aria-labelledby="calls-heading">
+        <div class="panel-head">
+          <h2 id="calls-heading">Recent calls</h2>
+          <p class="panel-note" id="calls-note">Whether a call was answered, why it ended and what was said appear once Agora notifications are switched on.</p>
+        </div>
+        <ul class="rows" id="calls-list"></ul>
+        <p class="empty" id="calls-empty">No calls yet.</p>
+      </section>
+    </div>
+
+    <div class="ops">
+      <section class="panel" aria-labelledby="wa-heading">
+        <div class="panel-head">
+          <h2 id="wa-heading">WhatsApp templates</h2>
+          <p class="panel-note">A message goes by WhatsApp once Meta has approved its template, and as a text message until then.</p>
+        </div>
+        <ul class="chips" id="wa-list"></ul>
+        <p class="empty" id="wa-empty">No templates reported.</p>
+      </section>
+
+      <section class="panel" id="numbers" aria-labelledby="numbers-heading" hidden>
+        <div class="panel-head">
+          <h2 id="numbers-heading">Front-page numbers</h2>
+          <p class="panel-note">The only numbers the public <a href="https://launchpad.aloysjehwin.com" target="_blank" rel="noopener">Call me now</a> page may dial. This console can call any number.</p>
+        </div>
+        <ul class="chips" id="numbers-list"></ul>
+        <p class="empty" id="numbers-empty" hidden>No numbers yet, so the public page cannot call anyone.</p>
+        <form class="inline-form" id="numbers-form" novalidate>
+          <div class="field">
+            <label for="numbers-input">Add a number</label>
+            <div class="inline-row">
+              <input id="numbers-input" type="tel" inputmode="tel" autocomplete="off" placeholder="98765 43210" aria-describedby="numbers-msg">
+              <button class="quiet" id="numbers-add" type="submit">Add</button>
+            </div>
+            <p class="field-help" id="numbers-msg" role="status" aria-live="polite"></p>
+          </div>
+        </form>
+      </section>
+    </div>
+
+    <!-- 4. Rehearsal: the same agent, in this browser. Behaviour: app.js -->
+    <details class="panel rehearsal" id="rehearsal">
+      <summary>
+        <span class="rehearsal-title">Rehearsal</span>
+        <span class="rehearsal-sub">Talk to the same agent in this browser. No phone rings.</span>
+        <span class="rehearsal-live" aria-hidden="true">live</span>
+      </summary>
+      <div class="rehearsal-body">
+        <div class="booth">
+          <div class="orb" id="orb" data-state="idle" aria-hidden="true">
+            <span class="ring"></span>
+            <span class="core"></span>
+          </div>
+          <div class="booth-text" role="status" aria-live="polite">
+            <p class="state" id="state">Ready when you are</p>
+            <p class="hint" id="hint">Press start and say hello.</p>
+          </div>
+          <div class="controls">
+            <button id="toggle" class="solid" type="button">Start conversation</button>
+            <button id="mute" class="quiet" type="button" hidden aria-pressed="false">Mute mic</button>
+          </div>
+          <p class="notice" id="notice" role="alert" hidden></p>
+          <div class="meters" id="meters" hidden>
+            <div class="meter"><span>You</span><div class="bar"><i id="level-you"></i></div></div>
+            <div class="meter"><span id="agent-name">Companion</span><div class="bar"><i id="level-agent"></i></div></div>
+          </div>
+          <p class="latency" id="latency" hidden></p>
+        </div>
+        <div class="transcript">
+          <h3>Conversation</h3>
+          <ol id="lines"></ol>
+          <p class="empty" id="empty">What you and the agent say will appear here.</p>
+        </div>
+      </div>
+    </details>
   </main>
+
+  <footer class="foot">
+    <p id="footer"></p>
+    <p id="call-meta" hidden></p>
+  </footer>
 
   <script src="/vendor/agora-rtc.js"></script>
   <script src="/vendor/agora-rtm.js"></script>
   <script src="/app.js"></script>
+  <script src="/stage.js"></script>
   <script src="/call.js"></script>
   <script src="/sites.js"></script>
 </body>

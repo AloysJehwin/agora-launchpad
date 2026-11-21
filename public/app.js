@@ -7,6 +7,7 @@ const el = {
   orb: $('orb'), state: $('state'), hint: $('hint'), toggle: $('toggle'), mute: $('mute'),
   notice: $('notice'), meters: $('meters'), levelYou: $('level-you'), levelAgent: $('level-agent'),
   lines: $('lines'), empty: $('empty'), footer: $('footer'), agentName: $('agent-name'),
+  latency: $('latency'),
 };
 
 const session = { rtc: null, rtm: null, mic: null, channel: null, uid: null, agentUid: null, live: false, busy: false };
@@ -92,7 +93,9 @@ const onAgentEvent = (type, payload = {}) => {
     }
     const segments = (payload.metrics?.segmented_latency_ms ?? []).map((s) => `${SEGMENTS[s.name] ?? s.name} ${Math.round(s.latency)} ms`);
     if (payload.metrics?.e2e_latency_ms != null) {
-      el.footer.textContent = `Last turn: ${payload.metrics.e2e_latency_ms} ms to first audio${segments.length ? ` (${segments.join(' · ')})` : ''}`;
+      // The latency line has its own place in the rehearsal panel; the footer keeps the voice and model line.
+      el.latency.textContent = `Last turn: ${payload.metrics.e2e_latency_ms} ms to first audio${segments.length ? ` (${segments.join(' · ')})` : ''}`;
+      el.latency.hidden = false;
     }
   }
 };
