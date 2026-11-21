@@ -423,6 +423,11 @@ textarea.input { min-height: 104px; resize: vertical; }
     if (!res.ok) throw Object.assign(new Error(typeof data.error === 'string' ? data.error : ''), { status: res.status, data });
     return data;
   };
+  // The visit counter (track.js), when it is on the page. The assistant works the same without it.
+  const counter = {
+    event(name) { try { window.lpTrack?.event(name); } catch { /* statistics never get in the way */ } },
+    ids() { try { return window.lpTrack?.ids() ?? {}; } catch { return {}; } },
+  };
   const beacon = (path, body) => {
     const text = JSON.stringify(body);
     try { if (navigator.sendBeacon(API + path, new Blob([text], { type: 'application/json' }))) return; } catch { /* fall through */ }
@@ -864,6 +869,7 @@ textarea.input { min-height: 104px; resize: vertical; }
     const openPanel = (mode) => {
       if (mode && (mode === 'write' || cfg.voice)) state.mode = mode;
       state.open = true;
+      counter.event('open');
       fit();
       render();
       panel.focus({ preventScroll: true });
@@ -1199,7 +1205,7 @@ textarea.input { min-height: 104px; resize: vertical; }
         s.dead = true;
         if (session === s) session = null;
         stopTimers(s);
-        if (s.talkId) request('/talk/stop', { talkId: s.talkId }, { keepalive: true }).catch(noop);
+        if (s.talkId) request('/talk/stop', { talkId: s.talkId, seconds: 0 }, { keepalive: true }).catch(noop);
         release(s);
         state.talk = { ...freshTalk(), notice: message, offerWrite };
         render();
@@ -1226,7 +1232,7 @@ textarea.input { min-height: 104px; resize: vertical; }
       // 2. Ask the server for a conversation: it brings the assistant into the channel.
       let grant;
       try {
-        grant = await request('/talk', { lang: state.lang, visitor: state.visitor ? { name: state.visitor.name, email: state.visitor.email } : null });
+        grant = await request('/talk', { lang: state.lang, visitor: state.visitor ? { name: state.visitor.name, email: state.visitor.email } : null, ...counter.ids() });
       } catch (err) {
         if (err.status === 429) startFailed(err.message ? { text: err.message } : { k: 'busy' });
         else if (err.status === 503) startFailed({ k: 'unavailable' });
@@ -1234,7 +1240,7 @@ textarea.input { min-height: 104px; resize: vertical; }
         return;
       }
       if (s.dead) {
-        if (grant?.talkId) request('/talk/stop', { talkId: grant.talkId }, { keepalive: true }).catch(noop);
+        if (grant?.talkId) request('/talk/stop', { talkId: grant.talkId, seconds: 0 }, { keepalive: true }).catch(noop);
         release(s);
         return;
       }
@@ -1290,6 +1296,7 @@ textarea.input { min-height: 104px; resize: vertical; }
       }
 
       s.live = true;
+      s.liveAt = Date.now();
       state.talk.phase = 'live';
       s.meter = setInterval(() => meter(s), 100);
       s.tick = setInterval(() => tick(s), 250);
@@ -1312,15 +1319,17 @@ textarea.input { min-height: 104px; resize: vertical; }
       }
       if (s.talkId) {
         const talkId = s.talkId;
+        // How long the two were actually connected, for the owner's statistics.
+        const seconds = s.liveAt ? Math.round((Date.now() - s.liveAt) / 1000) : 0;
         if (closing) {
           // The page is going away: only beacons are sure to leave.
           if (s.queue.size) beacon('/talk/transcript', { talkId, lines: [...s.queue.values()].map((l) => ({ role: l.role, text: l.text, turn: l.turn })) });
-          beacon('/talk/stop', { talkId });
+          beacon('/talk/stop', { talkId, seconds });
         } else {
           Promise.resolve(s.sending)
             .then(() => sendLines(s))
             .then(() => sendLines(s)) // one more go for anything that failed just now
-            .then(() => request('/talk/stop', { talkId }, { keepalive: true }))
+            .then(() => request('/talk/stop', { talkId, seconds }, { keepalive: true }))
             .catch(noop);
         }
       }

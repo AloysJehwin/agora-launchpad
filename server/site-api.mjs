@@ -1,5 +1,5 @@
 // The backend every site gets, served on the site's own subdomain:
-//   customer side (no sign-in)   /_lp/widget.js  /_lp/api/config  /talk  /enquiry
+//   customer side (no sign-in)   /_lp/widget.js  /_lp/track.js  /_lp/api/config  /talk  /enquiry  /event
 //   owner side (Google sign-in)  /admin  /_lp/api/admin/*
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -12,10 +12,12 @@ import { notify } from './notify.mjs';
 import { buildPhoneAgent } from './phone-agent.mjs';
 import { startCall } from './phone.mjs';
 import { photoFile } from './site-kit.mjs';
+import { acceptEvents, siteStats, talkAlive, talkEnded, talkStarted } from './analytics.mjs';
 
 const KIT = join(root, 'site-kit');
 const STATIC = {
   '/_lp/widget.js': [join(KIT, 'widget.js'), 'text/javascript; charset=utf-8'],
+  '/_lp/track.js': [join(KIT, 'track.js'), 'text/javascript; charset=utf-8'],
   '/_lp/admin.js': [join(KIT, 'admin', 'admin.js'), 'text/javascript; charset=utf-8'],
   '/_lp/admin.css': [join(KIT, 'admin', 'admin.css'), 'text/css; charset=utf-8'],
   '/_lp/vendor/agora-rtc.js': [join(root, 'node_modules/agora-rtc-sdk-ng/AgoraRTC_N-production.js'), 'text/javascript; charset=utf-8'],
@@ -47,9 +49,30 @@ const phoneE164 = (raw) => {
   return null;
 };
 
-/** The script tag added to every page of the site when it is served. */
-export const withWidget = (html) => {
-  const tag = '<script src="/_lp/widget.js" defer></script>';
+// Visits are counted for people, on the published page. Not for crawlers and link previewers,
+// not for a browser fetching the page ahead of time, and not for the owner while they are signed
+// in to the dashboard (they would otherwise be their own best visitor).
+// "bot" is matched with its case (Googlebot, AdsBot) because phones such as CUBOT are people.
+const BOT_NAME = /[a-z]bot\b|Bot\b|^bot/;
+const BOT_KIND = /crawl|spider|slurp|headless|phantomjs|lighthouse|pagespeed|prerender|facebookexternalhit|bingpreview|inspectiontool|^(curl|wget|python|node|go-http|java|okhttp|axios|undici|ruby|php|libwww)/i;
+/** Does this request come from someone whose visit should be counted? Never throws. */
+export const countable = (req, site) => {
+  try {
+    const ua = String(req.headers['user-agent'] ?? '');
+    if (!ua || BOT_NAME.test(ua) || BOT_KIND.test(ua)) return false;
+    if (/prefetch|prerender|preview/i.test(`${req.headers['sec-purpose'] ?? ''} ${req.headers.purpose ?? ''} ${req.headers['x-purpose'] ?? ''} ${req.headers['x-moz'] ?? ''}`)) return false;
+    return !adminSession(req, site);
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * The script tags added to the published page when it is served: the assistant, and (for
+ * visits that count) the visit counter. The counter goes first so the assistant finds it ready.
+ */
+export const withWidget = (html, { track = false } = {}) => {
+  const tag = `${track ? '<script src="/_lp/track.js" defer></script>\n' : ''}<script src="/_lp/widget.js" defer></script>`;
   // Template pages carry a "no scripts at all" policy; the widget is ours, so lift it.
   const open = html.replace(/<meta http-equiv="Content-Security-Policy"[^>]*>\s*/i, '');
   return open.includes('</body>') ? open.replace(/<\/body>(?![\s\S]*<\/body>)/i, `${tag}\n</body>`) : `${open}\n${tag}`;
@@ -69,12 +92,16 @@ const customer = {
 
   'POST /_lp/api/talk': async ({ site, body, req, register }) => {
     const visitor = body.visitor && typeof body.visitor === 'object' ? { name: String(body.visitor.name ?? '').slice(0, 80), email: String(body.visitor.email ?? '').slice(0, 120) } : null;
-    return startTalk({ site, lang: String(body.lang ?? ''), visitor, ip: clientIp(req), register });
+    const grant = await startTalk({ site, lang: String(body.lang ?? ''), visitor, ip: clientIp(req), register });
+    // Counted here rather than by the page, so a blocked script cannot hide a conversation.
+    if (countable(req, site)) talkStarted(site.slug, { talkId: grant.talkId, v: body.v, lang: getTalk(grant.talkId)?.lang, maxSeconds: grant.maxSeconds });
+    return grant;
   },
 
   'POST /_lp/api/talk/transcript': async ({ site, body }) => {
     const talk = getTalk(body.talkId);
     if (!talk || talk.slug !== site.slug) return { ok: true }; // the talk is over; nothing to attach to
+    talkAlive(body.talkId);
     const lines = (Array.isArray(body.lines) ? body.lines : []).filter((l) => l && typeof l.text === 'string' && l.text.trim());
     if (!lines.length) return { ok: true };
     let lead = await leadForTalk(site.slug, body.talkId);
@@ -85,6 +112,8 @@ const customer = {
 
   'POST /_lp/api/talk/stop': async ({ site, body }) => {
     const talk = getTalk(body.talkId);
+    // The statistics close the talk even when the session itself has already timed out.
+    talkEnded(site.slug, String(body.talkId ?? ''), body.seconds);
     if (talk && talk.slug === site.slug) await stopTalk(body.talkId);
     return { ok: true };
   },
@@ -102,6 +131,35 @@ const customer = {
     if (site.to) notify({ to: site.to, template: 'newEnquiry', vars: [site.name, name, message.slice(0, 200), `${site.slug}/admin/${site.claimToken}`], text: `Launchpad: new enquiry for ${site.name} from ${name}: ${message.slice(0, 160)}. See it: ${adminUrl(site)}` }).catch(() => {});
     return { ok: true };
   },
+};
+
+// What the visit counter on a published page reports (site-kit/track.js). Open to anyone, so the
+// body is tiny, checked field by field and rate limited (analytics.mjs). Requests that should not
+// count get the same quiet "ok" as those that do, so the endpoint tells a prober nothing.
+const EVENT_BYTES = 4096;
+const visitorEvent = async ({ req, res, site }) => {
+  if (req.method !== 'POST') return json(res, 405, { error: 'Use POST.' });
+  // Anything past the limit is let through unread (so the sender gets a proper answer, not a
+  // dropped connection) and a sender that keeps going far beyond it is cut off.
+  const raw = await new Promise((resolve) => {
+    const chunks = [];
+    let size = 0;
+    req.on('data', (chunk) => {
+      size += chunk.length;
+      if (size <= EVENT_BYTES) chunks.push(chunk);
+      else if (size > 256 * 1024) req.destroy();
+    });
+    req.on('end', () => resolve(size <= EVENT_BYTES ? Buffer.concat(chunks) : null));
+    req.on('close', () => resolve(null));
+  });
+  if (!raw) return json(res, 413, { error: 'That request is too large.' });
+  let body;
+  try { body = JSON.parse(raw.toString()); } catch { return json(res, 400, { error: 'The request body must be JSON.' }); }
+  const fetchSite = req.headers['sec-fetch-site']; // browsers say where a request came from; another site's page does not get to add visits
+  const referer = String(req.headers.referer ?? '');
+  const counts = Boolean(site.publishedHtml) && countable(req, site) && (!fetchSite || fetchSite === 'same-origin') && !/\/(preview|admin)(\/|\?|$)/.test(referer);
+  const out = await acceptEvents(site.slug, body, { address: clientIp(req), dryRun: !counts });
+  return json(res, out.status, out.status === 200 ? { ok: true } : { error: out.error });
 };
 
 // ------------------------------------------- owner pages opened from a private link ----
@@ -207,6 +265,9 @@ const admin = {
   'POST /_lp/api/admin/logout': async ({ site, res }) => { res.setHeader('set-cookie', clearCookie(site.slug)); return { ok: true }; },
 
   'GET /_lp/api/admin/leads': async ({ site }) => listLeads(site.slug),
+
+  // How the site is doing over the last 7, 30 (default) or 90 days.
+  'GET /_lp/api/admin/stats': async ({ site, url }) => siteStats(site, url.searchParams.get('days')),
 
   'GET /_lp/api/admin/site': async ({ site }) => publicView(site),
 
@@ -321,6 +382,9 @@ export const handleSiteKit = async ({ req, res, site, path, url, register }) => 
   if (!path.startsWith('/_lp/api/')) return false;
 
   try {
+    // The visit counter reads its own (much smaller) body, so it is answered before the rest.
+    if (path === '/_lp/api/event') { await visitorEvent({ req, res, site }); return true; }
+
     const body = method === 'GET' ? {} : await readBody(req);
 
     const open = customer[`${method} ${path}`] ?? ownerLink[`${method} ${path}`];
@@ -351,7 +415,7 @@ export const handleSiteKit = async ({ req, res, site, path, url, register }) => 
         if (origin && origin !== siteUrl(site.slug)) throw fail(403, 'That request did not come from this site.');
       }
       const handler = admin[`${method} ${path}`];
-      if (handler) { json(res, 200, await handler({ site, body, req, res, session })); return true; }
+      if (handler) { json(res, 200, await handler({ site, body, req, res, session, url })); return true; }
       const m = path.match(/^\/_lp\/api\/admin\/leads\/([a-f0-9]{8,32})(?:\/(message|call))?$/);
       if (m) { json(res, 200, await adminLead({ site, session, method, id: m[1], action: m[2], body })); return true; }
     }

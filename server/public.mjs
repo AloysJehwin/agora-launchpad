@@ -17,7 +17,7 @@ import { LANGUAGES } from './phone-agent.mjs';
 import { publishedSites } from './sites.mjs';
 import { recordEvent, signatureOk } from './call-events.mjs';
 import { isAllowed } from './numbers.mjs';
-import { handleSiteKit, withWidget } from './site-api.mjs';
+import { countable, handleSiteKit, withWidget } from './site-api.mjs';
 import { addLead, leadForTalk, updateLead } from './crm.mjs';
 import { googleReady, sign, signInPage, verifyGoogleCredential } from './auth.mjs';
 import {
@@ -371,7 +371,9 @@ const serveSite = async (req, res, slug, path, base, url) => {
   if (req.method !== 'GET' && req.method !== 'HEAD') return json(res, 405, { error: 'Method not allowed' });
 
   if (path === '/' || path === '') {
-    if (site.publishedHtml) return html(res, 200, withWidget(site.publishedHtml), { 'cache-control': 'no-cache' });
+    // The visit counter is only handed to visits that count: a person (not a crawler, not a HEAD
+    // or prefetch) who is not the signed-in owner. Nothing is recorded here, so serving cannot fail on it.
+    if (site.publishedHtml) return html(res, 200, withWidget(site.publishedHtml, { track: req.method === 'GET' && countable(req, site) }), { 'cache-control': 'no-cache' });
     res.writeHead(302, { location: `${base}/preview`, 'cache-control': 'no-store' });
     return res.end();
   }
