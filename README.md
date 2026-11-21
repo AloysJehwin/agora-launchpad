@@ -29,7 +29,7 @@ supported; asking to switch language ends the call and rings straight back in th
 ## Architecture
 
 ```mermaid
-flowchart LR
+flowchart TB
   owner["Business owner<br/>on a phone call"]
   visitor["Site visitor<br/>in a browser"]
   operator["Operator<br/>console"]
