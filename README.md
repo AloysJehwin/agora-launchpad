@@ -26,6 +26,100 @@ workflows).
 The person can talk over the agent at any time (barge-in). English, Hindi and Tamil are
 supported; asking to switch language ends the call and rings straight back in the new one.
 
+## Architecture
+
+```mermaid
+flowchart LR
+  owner["Business owner<br/>on a phone call"]
+  visitor["Site visitor<br/>in a browser"]
+  operator["Operator<br/>console"]
+
+  subgraph TW["Twilio"]
+    sip["Elastic SIP trunk<br/>phone line"]
+    wa["WhatsApp and SMS"]
+  end
+
+  subgraph AG["Agora Conversational AI"]
+    turn["Turn-taking and barge-in"]
+    asr["Speech to text<br/>Deepgram"]
+    llm["Call model<br/>gpt-4.1-mini, Gemini or Claude"]
+    tts["Voice<br/>Murf Falcon"]
+    turn --> asr --> llm --> tts
+  end
+
+  caddy["Caddy<br/>one HTTPS certificate per site"]
+
+  subgraph LP["Launchpad server, Node.js"]
+    capi["Console API<br/>start, follow and end calls"]
+    tools["Tool endpoints<br/>startPreview, addDetails, changeWebsite,<br/>changeImage, publishWebsite, switchLanguage"]
+    sites["Site lifecycle<br/>collecting, designing, ready, published"]
+    preview["Live preview<br/>server-sent events"]
+    pages["Published sites<br/>with voice assistant widget"]
+    crm["Enquiries and owner dashboard"]
+    store[("Sites on disk")]
+  end
+
+  claude["Claude<br/>designs and edits the pages"]
+
+  owner <-->|"phone call"| sip
+  sip <-->|"SIP audio"| AG
+  operator --> caddy
+  caddy --> capi
+  capi -->|"start the call"| AG
+  capi -->|"has the line closed?"| sip
+  llm -->|"HTTPS tool calls"| tools
+  tools --> sites
+  sites <-->|"design and revise"| claude
+  sites --> store
+  sites --> preview
+  tools -->|"preview, live and dashboard links"| wa
+  wa --> owner
+  owner -->|"opens the links"| caddy
+  caddy --> preview
+  caddy --> pages
+  caddy --> crm
+  visitor --> caddy
+  pages <-->|"visitor voice chat"| AG
+  pages -->|"enquiry"| crm
+  crm -->|"new enquiry alert"| wa
+```
+
+What happens on one call:
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant O as Owner's phone
+  participant A as Agora agent (Sam)
+  participant S as Launchpad server
+  participant C as Claude
+  participant W as WhatsApp
+  participant P as Preview page
+
+  S->>A: Start session and dial through the Twilio trunk
+  A->>O: "Hi, this is Sam. Is this a good time?"
+  O->>A: Says the business name
+  A->>S: startPreview(name)
+  S->>W: Preview link
+  W->>O: Link arrives, owner opens it
+  loop One question at a time
+    O->>A: Answer
+    A->>S: addDetails(answer)
+    S->>P: Sketch updates
+  end
+  S->>C: Design the full page
+  C-->>P: Page streams in while they talk
+  O->>A: "Make the heading bigger, change that photo"
+  A->>S: changeWebsite / changeImage
+  S->>C: Revise
+  C-->>P: Change appears, highlighted
+  O->>A: "Publish it"
+  A->>S: publishWebsite
+  S->>W: Live link and private dashboard link
+  O->>A: Hangs up
+  S->>S: Line closed on Twilio, session ended, dashboard link sent if still owed
+```
+
 ## What does what
 
 | Part | Role |
