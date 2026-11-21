@@ -143,7 +143,7 @@ const routes = {
   'GET /api/sites': async (_body, query) => {
     const channel = query.get('channel');
     if (channel) return { site: publicView(siteForRef(sessions.get(channel)?.ref)) ?? null };
-    return { sites: listSites().reverse() };
+    return { sites: (await listSites()).reverse() };
   },
   'GET /api/call': async (_body, query) => getCall(query.get('id') ?? ''),
   'POST /api/call/stop': async ({ callId }) => stopCall(callId),

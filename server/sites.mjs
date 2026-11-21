@@ -91,7 +91,16 @@ export const getSite = async (slug) => {
 };
 
 export const siteForRef = (ref) => (byRef.has(ref) ? sites.get(byRef.get(ref)) : null);
-export const listSites = () => [...sites.values()].map(publicView);
+/**
+ * Every site, oldest first. Sites saved on disk are loaded first, so the console's list is
+ * complete after a restart instead of showing only the sites touched since.
+ */
+export const listSites = async () => {
+  let names = [];
+  try { names = await readdir(env.sitesDir); } catch { /* no sites folder yet */ }
+  await Promise.all(names.filter((n) => !sites.has(n)).map((n) => getSite(n)));
+  return [...sites.values()].sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0)).map(publicView);
+};
 
 export const publicView = (site) => site && ({
   slug: site.slug, name: site.name, status: site.status, lang: site.lang, madeBy: site.madeBy,
